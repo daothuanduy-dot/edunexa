@@ -4,7 +4,7 @@
   if(!cfg||!/^https:\/\/.+\.supabase\.co$/.test(cfg.url)||!cfg.publishableKey){msg('Chưa cấu hình config.js.',true);return;}
   const sb=window.supabase.createClient(cfg.url,cfg.publishableKey);
   const statuses={draft:'Bản nháp',pending_review:'Chờ duyệt',approved:'Đã duyệt',provisioning:'Đang khởi tạo',ready:'Sẵn sàng',active:'Đang hoạt động',suspended:'Tạm ngừng',rejected:'Từ chối'};
-  const next={draft:'pending_review'};
+  const next={draft:['pending_review','chuyen_trang_thai'],pending_review:['approved','phe_duyet'],approved:['provisioning','bat_dau_khoi_tao'],provisioning:['ready','danh_dau_san_sang'],ready:['active','kich_hoat']};
   async function call(hanh_dong,fields={}){
     const {data:{session}}=await sb.auth.getSession();if(!session)throw Error('Vui lòng đăng nhập lại');
     const r=await fetch(`${cfg.url}/functions/v1/quan-tri-truong`,{method:'POST',headers:{'Content-Type':'application/json',apikey:cfg.publishableKey,Authorization:`Bearer ${session.access_token}`},body:JSON.stringify({hanh_dong,...fields})});
@@ -12,7 +12,7 @@
   }
   async function refresh(){try{const items=await call('danh_sach');const root=$('schools');root.replaceChildren();if(!items.length){root.textContent='Chưa có trường học.';return;}
     for(const s of items){const el=document.createElement('article');el.className='school';const title=document.createElement('strong');title.textContent=s.ten_truong;const info=document.createElement('small');info.textContent=`${s.ma_truong} · ${statuses[s.trang_thai]||s.trang_thai}`;el.append(title,info);
-      if(next[s.trang_thai]){const b=document.createElement('button');b.className='outline';b.textContent=`Chuyển sang: ${statuses[next[s.trang_thai]]}`;b.onclick=async()=>{if(!confirm(`Xác nhận thay đổi trạng thái của ${s.ten_truong}?`))return;try{await call('chuyen_trang_thai',{id:s.id,trang_thai:next[s.trang_thai]});msg('Đã cập nhật trạng thái');await refresh()}catch(e){msg(e.message,true)}};el.append(b)}root.append(el)}
+      if(next[s.trang_thai]){const b=document.createElement('button');b.className='outline';b.textContent=`Chuyển sang: ${statuses[next[s.trang_thai]][0]}`;b.onclick=async()=>{if(!confirm(`Xác nhận thay đổi trạng thái của ${s.ten_truong}?`))return;try{await call('chuyen_trang_thai',{id:s.id,trang_thai:next[s.trang_thai]});msg('Đã cập nhật trạng thái');await refresh()}catch(e){msg(e.message,true)}};el.append(b)}if(['approved','provisioning','ready','active'].includes(s.trang_thai)){const row=document.createElement('div');row.className='assign-row';const input=document.createElement('input');input.placeholder='UUID tài khoản quản trị trường';input.setAttribute('aria-label','UUID quản trị trường');const assign=document.createElement('button');assign.type='button';assign.className='outline';assign.textContent='Gán quản trị viên';assign.onclick=async()=>{if(!confirm('Gán vai trò school_admin cho UID đã nhập tại trường này?'))return;try{await call('gan_quan_tri',{id:s.id,nguoi_dung_id:input.value.trim()});msg('Đã gán quản trị viên trường');input.value=''}catch(e){msg(e.message,true)}};row.append(input,assign);el.append(row)}root.append(el)}
   }catch(e){msg(e.message,true)}}
   let recoveryMode=false;
   const panels=['login','recover','reset','app'];
