@@ -14,10 +14,65 @@
     for(const s of items){const el=document.createElement('article');el.className='school';const title=document.createElement('strong');title.textContent=s.ten_truong;const info=document.createElement('small');info.textContent=`${s.ma_truong} · ${statuses[s.trang_thai]||s.trang_thai}`;el.append(title,info);
       if(next[s.trang_thai]){const b=document.createElement('button');b.className='outline';b.textContent=`Chuyển sang: ${statuses[next[s.trang_thai]]}`;b.onclick=async()=>{if(!confirm(`Xác nhận thay đổi trạng thái của ${s.ten_truong}?`))return;try{await call('chuyen_trang_thai',{id:s.id,trang_thai:next[s.trang_thai]});msg('Đã cập nhật trạng thái');await refresh()}catch(e){msg(e.message,true)}};el.append(b)}root.append(el)}
   }catch(e){msg(e.message,true)}}
-  async function show(){const {data:{session}}=await sb.auth.getSession();$('login').hidden=!!session;$('app').hidden=!session;$('logout').hidden=!session;if(session)await refresh()}
+  let recoveryMode=false;
+  const panels=['login','recover','reset','app'];
+  function view(which){for(const id of panels)$(id).hidden=id!==which;$('logout').hidden=which!=='app'}
+  async function show(){
+    if(recoveryMode){view('reset');return;}
+    const {data:{session}}=await sb.auth.getSession();
+    view(session?'app':'login');if(session)await refresh();
+  }
+  function isRecoveryUrl(){
+    const q=new URLSearchParams(location.search),h=new URLSearchParams(location.hash.slice(1));
+    return q.get('type')==='recovery'||h.get('type')==='recovery'||q.has('token_hash')&&q.get('type')==='recovery';
+  }
+  async function initialize(){
+    const q=new URLSearchParams(location.search),h=new URLSearchParams(location.hash.slice(1));
+    const error=q.get('error_description')||h.get('error_description');
+    if(error){view('login');msg('Liên kết không hợp lệ hoặc đã hết hạn. Vui lòng yêu cầu liên kết mới.',true);history.replaceState({},'',location.pathname);return;}
+    if(isRecoveryUrl()){
+      const tokenHash=q.get('token_hash');
+      if(tokenHash){
+        const {error:verifyError}=await sb.auth.verifyOtp({token_hash:tokenHash,type:'recovery'});
+        if(verifyError){view('login');msg('Liên kết khôi phục không hợp lệ hoặc đã hết hạn.',true);history.replaceState({},'',location.pathname);return;}
+      }else if(h.has('access_token')){
+        const {error:sessionError}=await sb.auth.setSession({access_token:h.get('access_token'),refresh_token:h.get('refresh_token')||''});
+        if(sessionError){view('login');msg('Không xác thực được liên kết khôi phục.',true);history.replaceState({},'',location.pathname);return;}
+      }
+      const {data:{session}}=await sb.auth.getSession();
+      if(session){recoveryMode=true;view('reset');history.replaceState({},'',location.pathname);return;}
+    }
+    await show();
+  }
+  sb.auth.onAuthStateChange((event)=>{
+    if(event==='PASSWORD_RECOVERY'){recoveryMode=true;view('reset');history.replaceState({},'',location.pathname)}
+  });
+  $('forgotLink').onclick=()=>{view('recover');$('recoverEmail').value=$('email').value;msg('')};
+  $('backLogin').onclick=()=>{view('login');msg('')};
+  $('recoverForm').onsubmit=async e=>{
+    e.preventDefault();const button=e.submitter;button.disabled=true;
+    try{
+      const redirectTo=new URL('./',location.href).href;
+      const {error}=await sb.auth.resetPasswordForEmail($('recoverEmail').value.trim(),{redirectTo});
+      if(error)throw error;
+      msg('Nếu email có tài khoản hợp lệ, bạn sẽ nhận được hướng dẫn khôi phục. Hãy kiểm tra cả thư mục Spam.');
+    }catch(err){msg(err.message,true)}finally{button.disabled=false}
+  };
+  $('resetForm').onsubmit=async e=>{
+    e.preventDefault();const password=$('newPassword').value;
+    if(password.length<12){msg('Mật khẩu phải có ít nhất 12 ký tự.',true);return}
+    if(password!==$('confirmPassword').value){msg('Hai mật khẩu không khớp.',true);return}
+    const button=e.submitter;button.disabled=true;
+    try{
+      const {data:{session}}=await sb.auth.getSession();if(!session)throw Error('Phiên khôi phục đã hết hạn. Vui lòng yêu cầu liên kết mới.');
+      const {error}=await sb.auth.updateUser({password});if(error)throw error;
+      $('resetForm').reset();recoveryMode=false;
+      await sb.auth.signOut();view('login');msg('Đã cập nhật mật khẩu. Vui lòng đăng nhập bằng mật khẩu mới.');
+    }catch(err){msg(err.message,true)}finally{button.disabled=false}
+  };
   $('loginForm').onsubmit=async e=>{e.preventDefault();try{const {error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});if(error)throw error;$('password').value='';msg('Đã đăng nhập');await show()}catch(err){msg(err.message,true)}};
   $('logout').onclick=async()=>{await sb.auth.signOut();msg('Đã đăng xuất');await show()};
   $('refresh').onclick=refresh;
   $('createForm').onsubmit=async e=>{e.preventDefault();try{await call('tao_truong',{ma_truong:$('code').value,ten_truong:$('name').value,cap_hoc:$('level').value});msg('Đã tạo trường ở trạng thái bản nháp');e.target.reset();await refresh()}catch(err){msg(err.message,true)}};
-  show().catch(e=>msg(e.message,true));
+  initialize().catch(e=>msg(e.message,true));
 })();
