@@ -15,12 +15,31 @@
       if(next[s.trang_thai]){const b=document.createElement('button');b.className='outline';b.textContent=`Chuyển sang: ${statuses[next[s.trang_thai][0]] || next[s.trang_thai][0]}`;b.onclick=async()=>{if(!confirm(`Xác nhận thay đổi trạng thái của ${s.ten_truong}?`))return;try{await call(next[s.trang_thai][1],{id:s.id,trang_thai:next[s.trang_thai][0]});msg('Đã cập nhật trạng thái');await refresh()}catch(e){msg(e.message,true)}};el.append(b)}if(['approved','provisioning','ready','active'].includes(s.trang_thai)){const row=document.createElement('div');row.className='assign-row';const input=document.createElement('input');input.placeholder='UUID tài khoản quản trị trường';input.setAttribute('aria-label','UUID quản trị trường');const assign=document.createElement('button');assign.type='button';assign.className='outline';assign.textContent='Gán quản trị viên';assign.onclick=async()=>{if(!confirm('Gán vai trò school_admin cho UID đã nhập tại trường này?'))return;try{await call('gan_quan_tri',{id:s.id,nguoi_dung_id:input.value.trim()});msg('Đã gán quản trị viên trường');input.value=''}catch(e){msg(e.message,true)}};row.append(input,assign);el.append(row)}root.append(el)}
   }catch(e){msg(e.message,true)}}
   let recoveryMode=false;
-  const panels=['login','recover','reset','app'];
-  function view(which){for(const id of panels)$(id).hidden=id!==which;$('logout').hidden=which!=='app'}
+  const panels=['login','recover','reset','app','school','choose'];
+  function view(which){for(const id of panels)$(id).hidden=id!==which;$('logout').hidden=!['app','school','choose'].includes(which)}
   async function show(){
     if(recoveryMode){view('reset');return;}
     const {data:{session}}=await sb.auth.getSession();
-    view(session?'app':'login');if(session)await refresh();
+    if(!session){view('login');return;}
+    const ctx=await call('boi_canh');
+    const choices=[];
+    if(ctx.platform_admin)choices.push({label:'Quản trị nền tảng',type:'platform'});
+    for(const school of ctx.schools||[])choices.push({label:school.ten_truong+' · '+school.ma_truong,type:'school',school});
+    if(!choices.length){view('login');msg('Tài khoản chưa được cấp quyền quản trị EduNexa.',true);return;}
+    const select=(choice)=>{
+      if(choice.type==='platform'){view('app');refresh();return;}
+      $('schoolName').textContent=choice.school.ten_truong;
+      $('schoolInfo').textContent=choice.school.ma_truong+' · '+choice.school.trang_thai;
+      view('school');
+    };
+    if(choices.length===1){select(choices[0]);return;}
+    const root=$('contexts');root.replaceChildren();
+    for(const choice of choices){
+      const button=document.createElement('button');button.type='button';
+      button.className='outline';button.textContent=choice.label;
+      button.onclick=()=>select(choice);root.append(button);
+    }
+    view('choose');
   }
   function isRecoveryUrl(){
     const q=new URLSearchParams(location.search),h=new URLSearchParams(location.hash.slice(1));
@@ -71,6 +90,7 @@
     }catch(err){msg(err.message,true)}finally{button.disabled=false}
   };
   $('loginForm').onsubmit=async e=>{e.preventDefault();try{const {error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});if(error)throw error;$('password').value='';msg('Đã đăng nhập');await show()}catch(err){msg(err.message,true)}};
+  $('switchContext').onclick=()=>show().catch(e=>msg(e.message,true));
   $('logout').onclick=async()=>{await sb.auth.signOut();msg('Đã đăng xuất');await show()};
   $('refresh').onclick=refresh;
   $('createForm').onsubmit=async e=>{e.preventDefault();try{await call('tao_truong',{ma_truong:$('code').value,ten_truong:$('name').value,cap_hoc:$('level').value});msg('Đã tạo trường ở trạng thái bản nháp');e.target.reset();await refresh()}catch(err){msg(err.message,true)}};

@@ -3,3 +3,5 @@
 #recover,#reset{max-width:430px;margin:50px auto}.text-button{display:block;margin:14px 0 0;padding:5px 0;background:transparent;color:#146eb2;text-decoration:underline;border:0}.text-button:hover{text-decoration:none}button:disabled{opacity:.6;cursor:wait}
 
 .assign-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.assign-row input{flex:1;min-width:220px}.assign-row button{width:auto}
+
+#contexts{display:grid;gap:12px}#contexts button{text-align:left}#school{max-width:900px;margin:auto}
