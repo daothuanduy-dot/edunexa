@@ -5,7 +5,7 @@
  var crudTitle=document.querySelector('#v024Panel h2');
  if(crudTitle)crudTitle.textContent='Quản lý dữ liệu '+window.EDUNEXA_VERSION;
  const script=document.createElement('script');
- script.src='src/legacy/app.js?v=0.2.5';
+ script.src='src/legacy/app.js?v=0.2.5-fix2';
  script.onerror=()=>{const e=document.getElementById('message');if(e)e.textContent='Không tải được ứng dụng. Kiểm tra đường dẫn src/legacy/app.js';};
  document.head.appendChild(script);
 })();
