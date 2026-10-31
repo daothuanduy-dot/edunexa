@@ -29,7 +29,12 @@
     const select=(choice)=>{
       if(choice.type==='platform'){view('app');refresh();return;}
       $('schoolName').textContent=choice.school.ten_truong;
-      $('schoolInfo').textContent=choice.school.ma_truong+' · '+choice.school.trang_thai;
+      $('schoolInfo').textContent='Mã trường: '+choice.school.ma_truong;
+      $('schoolStatus').textContent=statuses[choice.school.trang_thai]||choice.school.trang_thai;
+      $('schoolCode').textContent=choice.school.ma_truong;
+      $('schoolRole').textContent='Quản trị trường';
+      $('switchContext').hidden=choices.length<2;
+      $('schoolDataNotice').textContent='Các thống kê năm học, lớp học và người dùng sẽ được kết nối sau khi xác minh cấu trúc cơ sở dữ liệu và triển khai API chỉ đọc.';
       view('school');
     };
     if(choices.length===1){select(choices[0]);return;}
