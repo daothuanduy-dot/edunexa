@@ -39,6 +39,11 @@
 #v025ImportBox{margin-top:18px;border:1px solid #dce6f1;border-radius:12px;padding:14px}
 #v025ImportBox button{margin:10px 8px 0 0}
 #v025PreviewRows{max-height:280px;overflow-y:auto;padding-right:8px}
+#v024HistoryDialog{width:min(680px,calc(100vw - 32px));border:1px solid #dce6f1;border-radius:14px;padding:20px;box-shadow:0 14px 40px #1e456033}
+#v024HistoryDialog::backdrop{background:#17283f66}
+.v024-history-body{display:grid;gap:8px;max-height:360px;overflow-y:auto;margin:14px 0}
+.v024-history-item{display:grid;gap:4px;padding:10px;border:1px solid #dce6f1;border-radius:9px;background:#f8fbff}
+.v024-history-item small{color:#60758b}
 #b43YearList,#b43ClassList,#b44MemberList,#b43LogList{max-height:360px;overflow-y:auto;padding-right:8px;scrollbar-gutter:stable;overscroll-behavior:contain}
 @media(max-width:600px){.v024-row{align-items:flex-start}.v024-row-actions{width:100%;margin-left:0}.v024-action{flex:1}.v024-profile-filter{max-width:none}}
 .v023box form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px}

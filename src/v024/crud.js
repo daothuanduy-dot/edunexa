@@ -43,7 +43,9 @@
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 400 && result.error === 'Thao tác không hợp lệ') {
-        throw Error('Backend chưa triển khai action V0.2.4. Hãy deploy Edge Function V0.2.4 trước.');
+        throw Error(hanh_dong === 'tieuchi_versions'
+          ? 'Backend chưa triển khai lịch sử tiêu chí V0.2.6. Hãy deploy Edge Function mới trước.'
+          : 'Backend chưa triển khai action V0.2.4. Hãy deploy Edge Function V0.2.4 trước.');
       }
       throw Error(result.error || 'Lỗi xử lý yêu cầu');
     }
@@ -160,6 +162,46 @@
     return areas.find(area => area.id === id)?.ten || 'Chưa xác định mảng cha';
   }
 
+  function ensureHistoryDialog() {
+    let dialog = $('v024HistoryDialog');
+    if (dialog) return dialog;
+    dialog = el('dialog', { id: 'v024HistoryDialog' });
+    const heading = el('h3', { textContent: 'Lịch sử phiên bản tiêu chí' });
+    const body = el('div', { className: 'v024-history-body' });
+    body.dataset.historyBody = 'true';
+    const close = el('button', { type: 'button', className: 'outline', textContent: 'Đóng' });
+    close.onclick = () => { if (typeof dialog.close === 'function') dialog.close(); else dialog.open = false; };
+    dialog.append(heading, body, close);
+    $('v024Panel').append(dialog);
+    return dialog;
+  }
+
+  async function showCriterionHistory(row) {
+    const dialog = ensureHistoryDialog();
+    const body = dialog.querySelector('[data-history-body]');
+    body.replaceChildren(el('p', { textContent: 'Đang tải lịch sử...' }));
+    dialog.querySelector('h3').textContent = `Lịch sử: ${row.ma} · ${row.ten}`;
+    if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.open = true;
+    try {
+      const versions = await api('tieuchi_versions', { id: row.id });
+      body.replaceChildren();
+      if (!versions.length) {
+        body.append(el('p', { textContent: 'Chưa có snapshot phiên bản.' }));
+        return;
+      }
+      for (const version of versions) {
+        const item = el('article', { className: 'v024-history-item' });
+        const title = el('strong', { textContent: `Phiên bản ${version.phien_ban} · ${version.ly_do}` });
+        const details = el('small', { textContent: `${version.ten} · ${version.diem} điểm · ${(version.chu_ky || []).join(', ')} · ${version.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp'}` });
+        const time = el('small', { textContent: version.ngay_tao ? new Date(version.ngay_tao).toLocaleString('vi-VN') : '' });
+        item.append(title, details, time);
+        body.append(item);
+      }
+    } catch (error) {
+      body.replaceChildren(el('p', { className: 'error', textContent: error.message }));
+    }
+  }
+
   function openCriteriaForArea(area) {
     selectedAreaId = area.id;
     $('v024Kind').value = 'tieuchi';
@@ -263,6 +305,12 @@
         children.innerHTML = `<span aria-hidden="true">→</span><span>Tiêu chí (${childCount})</span>`;
         children.onclick = () => openCriteriaForArea(row);
         actions.append(children);
+      }
+      if (kind === 'tieuchi') {
+        const history = el('button', { type: 'button', className: 'outline v024-action', title: 'Xem lịch sử phiên bản tiêu chí' });
+        history.innerHTML = '<span aria-hidden="true">◷</span><span>Lịch sử</span>';
+        history.onclick = () => showCriterionHistory(row);
+        actions.append(history);
       }
       const edit = el('button', { type: 'button', className: 'outline v024-action', title: 'Sửa bản ghi' });
       edit.innerHTML = '<span aria-hidden="true">✎</span><span>Sửa</span>';
