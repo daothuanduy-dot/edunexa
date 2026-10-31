@@ -207,9 +207,9 @@
   $('v025Preview').classList.add('v024-action');
   $('v025Import').innerHTML = '<span aria-hidden="true">✓</span><span>Ghi các dòng hợp lệ</span>';
   $('v025Import').classList.add('v024-action');
-  $('v024Kind').addEventListener('change', () => {
-    box.hidden = $('v024Kind').value !== 'tieuchi';
-  });
+  window.edunexaSyncV025Import = kind => { box.hidden = kind !== 'tieuchi'; };
+  $('v024Kind').addEventListener('change', () => window.edunexaSyncV025Import($('v024Kind').value));
+  window.edunexaSyncV025Import($('v024Kind').value);
   $('v025Preview').onclick = previewFile;
   $('v025Import').onclick = importRows;
 })();

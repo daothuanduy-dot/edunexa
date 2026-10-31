@@ -122,6 +122,7 @@
 
     function syncKindControls() {
       const kind = select.value;
+      const kindName = kind === 'hoso' ? 'hồ sơ' : kind === 'mang' ? 'mảng thi đua' : 'tiêu chí thi đua';
       tabs.querySelectorAll('button').forEach(button => {
         const active = button.dataset.kind === kind;
         button.classList.toggle('selected', active);
@@ -130,6 +131,11 @@
       profileLabel.hidden = kind !== 'hoso';
       areaFilterLabel.hidden = kind !== 'tieuchi';
       if (kind !== 'hoso') profileFilter = 'all';
+      const refreshText = $('v024Refresh').querySelector('span:last-child');
+      if (refreshText) refreshText.textContent = `Tải danh sách ${kindName}`;
+      const clearText = $('v024Clear').querySelector('span:last-child');
+      if (clearText) clearText.textContent = kind === 'hoso' ? 'Thêm hồ sơ ở tab Người dùng' : `Thêm ${kindName}`;
+      window.edunexaSyncV025Import?.(kind);
     }
     window.edunexaSyncV024Kind = syncKindControls;
     syncKindControls();
@@ -168,7 +174,7 @@
       ? 'Tạo hồ sơ ở tab Người dùng'
       : row.id
         ? `Cập nhật ${kind === 'mang' ? 'mảng thi đua' : kind === 'tieuchi' ? 'tiêu chí' : 'hồ sơ'}`
-        : `Tạo ${kind === 'mang' ? 'mảng thi đua' : 'tiêu chí'}`;
+        : `Thêm ${kind === 'mang' ? 'mảng thi đua' : 'tiêu chí thi đua'}`;
     const submitText = submit.querySelector('span:last-child');
     if (submitText) submitText.textContent = actionLabel;
     else submit.textContent = actionLabel;
@@ -241,10 +247,11 @@
       const detail = el('div', { className: 'v024-row-detail' });
       const title = row.ho_ten || row.ten || row.ma;
       const type = row.loai === 'student' ? 'Học sinh' : row.loai === 'teacher' ? 'Giáo viên' : '';
+      const childCount = kind === 'mang' ? criteriaRows.filter(item => item.mang_id === row.id).length : 0;
       const summary = kind === 'hoso'
         ? [type, row.ma_dinh_danh, row.lop, row.email, row.ngay_sinh].filter(Boolean).join(' · ')
         : kind === 'mang'
-          ? [row.ma, row.mo_ta].filter(Boolean).join(' · ')
+          ? [row.ma, `Số tiêu chí: ${childCount}`, row.mo_ta].filter(Boolean).join(' · ')
           : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', row.diem, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
       detail.append(el('strong', { textContent: title }), el('small', { textContent: summary }));
       if (kind === 'tieuchi') {
@@ -252,7 +259,6 @@
       }
       const actions = el('div', { className: 'v024-row-actions' });
       if (kind === 'mang') {
-        const childCount = criteriaRows.filter(item => item.mang_id === row.id).length;
         const children = el('button', { type: 'button', className: 'outline v024-action', title: 'Xem các tiêu chí thuộc mảng này' });
         children.innerHTML = `<span aria-hidden="true">→</span><span>Tiêu chí (${childCount})</span>`;
         children.onclick = () => openCriteriaForArea(row);
@@ -262,9 +268,10 @@
       edit.innerHTML = '<span aria-hidden="true">✎</span><span>Sửa</span>';
       edit.onclick = () => { renderForm(row); $('v024Form').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
       const archive = el('button', { type: 'button', className: 'outline v024-action', title: 'Ngừng hiệu lực bản ghi' });
-      archive.innerHTML = '<span aria-hidden="true">⏸</span><span>Ngừng hiệu lực</span>';
+      archive.innerHTML = '<span aria-hidden="true">⏸</span><span>Xóa · ngừng hiệu lực</span>';
       archive.onclick = async () => {
-        if (!confirm('Xác nhận ngừng hiệu lực bản ghi?')) return;
+        const itemName = kind === 'mang' ? 'mảng thi đua' : kind === 'tieuchi' ? 'tiêu chí thi đua' : 'hồ sơ';
+        if (!confirm(`Xác nhận xóa mềm ${itemName} này? Bản ghi sẽ chuyển sang ngừng hiệu lực.`)) return;
         try {
           await api(`${kind}_archive`, { id: row.id, ngay_cap_nhat: row.ngay_cap_nhat });
           await load();
