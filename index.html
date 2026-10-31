@@ -1,5 +1,5 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>EduNexa | Đăng nhập tập trung</title><link rel="stylesheet" href="style.css"></head><body>
-<header><div><strong>EduNexa</strong><span class="sub">EduNexa · V0.2.2</span></div><button id="logout" hidden>Đăng xuất</button></header>
+<header><div><strong>EduNexa</strong><span class="sub">EduNexa · V0.2.3</span></div><button id="logout" hidden>Đăng xuất</button></header>
 <main><section id="login" class="panel"><h1>Đăng nhập EduNexa</h1><p>Đăng nhập một lần; hệ thống xác định quyền và trường được phân công.</p><form id="loginForm"><label>Email<input id="email" type="email" autocomplete="username" required></label><label>Mật khẩu<input id="password" type="password" autocomplete="current-password" required></label><button>Đăng nhập</button></form><button type="button" id="forgotLink" class="text-button">Quên mật khẩu?</button></section>
 <section id="recover" class="panel" hidden><h1>Khôi phục mật khẩu</h1><p>Nhập email tài khoản để nhận liên kết đặt lại mật khẩu.</p><form id="recoverForm"><label>Email<input id="recoverEmail" type="email" autocomplete="email" required></label><button type="submit">Gửi liên kết khôi phục</button></form><button type="button" id="backLogin" class="text-button">Quay lại đăng nhập</button></section>
 <section id="reset" class="panel" hidden><h1>Đặt mật khẩu mới</h1><p>Nhập mật khẩu mới cho tài khoản EduNexa.</p><form id="resetForm"><label>Mật khẩu mới<input id="newPassword" type="password" autocomplete="new-password" minlength="12" required></label><label>Nhập lại mật khẩu<input id="confirmPassword" type="password" autocomplete="new-password" minlength="12" required></label><button type="submit">Lưu mật khẩu mới</button></form></section>
@@ -21,8 +21,25 @@
 <section id="b43-settings" class="b43page" hidden><h2>Cấu hình trường</h2><p>Không chỉnh sửa mã trường, trạng thái kích hoạt hoặc vai trò.</p><form id="b43SettingsForm"><label>Năm học hiện hành<select id="b43CurrentYear"></select></label><label>Tên hiển thị (tùy chọn)<input id="b43DisplayName" maxlength="200"></label><label>Ghi chú vận hành<textarea id="b43Notes" maxlength="1000" rows="3"></textarea></label><button type="submit">Lưu cấu hình</button></form></section>
 <section id="b43-logs" class="b43page" hidden><h2>Nhật ký quản trị trường</h2><button id="b43ReloadLogs" class="outline" type="button">Tải lại</button><div id="b43LogList" class="b43list"></div></section>
 <section id="b43-overview" class="b43page" hidden><h2>Dashboard mở rộng</h2><p id="b43CurrentLabel"></p><div id="b43GradeStats" class="b43list"></div></section>
-<section id="b43-members" class="b43page" hidden><h2>Người dùng và vai trò B4.4</h2><p>Danh sách chỉ đọc; chưa cho phép cấp, thu hồi quyền hoặc thay đổi tài khoản khi chưa xác minh ràng buộc CSDL.</p><button type="button" id="b44Reload" class="outline">Tải danh sách thành viên</button><p id="b44Notice" role="status"></p><div id="b44MemberList" class="b43list"></div></section>
+<section id="b43-members" class="b43page" hidden><h2>Người dùng và vai trò B4.4</h2><p>Danh sách chỉ đọc; chưa cho phép cấp, thu hồi quyền hoặc thay đổi tài khoản khi chưa xác minh ràng buộc CSDL.</p><button type="button" id="b44Reload" class="outline">Tải danh sách thành viên</button><p id="b44Notice" role="status"></p><div id="b44MemberList" class="b43list"></div>
+<div class="v023box"><h3>Hồ sơ người dùng V0.2.3</h3>
+<p>Nhập hồ sơ riêng lẻ hoặc từ Excel. Chưa tạo tài khoản đăng nhập hay cấp vai trò tự động.</p>
+<form id="v023Form"><label>Đối tượng<select id="v023Type"><option value="teacher">Giáo viên</option><option value="student">Học sinh</option></select></label>
+<label>Mã định danh Bộ GD&ĐT<input id="v023Code" required maxlength="64" autocomplete="off"></label>
+<label>Họ và tên<input id="v023Name" required maxlength="200"></label>
+<label>Ngày sinh<input id="v023Dob" type="date"></label>
+<label>Lớp (nếu là học sinh)<input id="v023Class" maxlength="40"></label>
+<label>Email (nếu có)<input id="v023Email" type="email" maxlength="254"></label>
+<button type="submit">Lưu hồ sơ</button></form>
+<h3>Nhập hồ sơ từ Excel</h3><p>Hỗ trợ tệp xuất CSDL theo mẫu giáo viên/học sinh; xem trước và xác nhận trước khi ghi.</p>
+<label>Loại danh sách<select id="v023ImportType"><option value="student">Học sinh</option><option value="teacher">Giáo viên</option></select></label>
+<input id="v023Excel" type="file" accept=".xlsx,.xls" aria-label="Chọn tệp Excel">
+<button id="v023Preview" type="button" class="outline">Xem trước Excel</button>
+<p id="v023PreviewInfo" role="status"></p><div id="v023PreviewRows" class="b43list"></div>
+<button id="v023Import" type="button" hidden>Nhập các hồ sơ hợp lệ</button>
+<h3>Hồ sơ đã lưu</h3><button id="v023Reload" type="button" class="outline">Tải danh sách hồ sơ</button>
+<p id="v023Notice" role="status"></p><div id="v023List" class="b43list"></div></div></section>
 </div>
 </section>
 <section id="app" hidden><div class="heading"><div><h1>Quản lý trường học</h1><p>Quản lý đơn vị thí điểm · Development</p></div><button id="refresh" class="outline">Tải lại</button></div><div class="layout"><section class="panel"><h2>Thêm trường (bản nháp)</h2><form id="createForm"><label>Mã trường<input id="code" placeholder="VD: LHP-HP-PILOT" required maxlength="32"></label><label>Tên trường<input id="name" required maxlength="200"></label><label>Cấp học<select id="level"><option value="upper_secondary">THPT</option><option value="lower_secondary">THCS</option><option value="primary">Tiểu học</option><option value="preschool">Mầm non</option><option value="multi_level">Nhiều cấp học</option></select></label><button>Tạo bản nháp</button></form></section><section class="panel wide"><h2>Danh sách trường</h2><div id="schools" class="schools"></div></section></div></section><p id="message" role="status" aria-live="polite"></p></main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script><script src="config.js"></script><script src="app.js?v=0.2.2"></script></body></html>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script><script src="config.js"></script><script src="app.js?v=0.2.3"></script></body></html>

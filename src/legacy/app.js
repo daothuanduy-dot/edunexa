@@ -201,5 +201,80 @@
   $('b43ReloadLogs').onclick=b43Logs;
   $('b43BatchAdd').onclick=async()=>{const year=$('b43ClassYear').value;if(!year){b43notice('Hãy chọn năm học',true);return}const names=[...new Set($('b43Batch').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean))];if(!names.length||names.length>40){b43notice('Nhập từ 1 đến 40 lớp',true);return}if(!confirm(`Tạo ${names.length} lớp cho năm học đang chọn?`))return;let ok=0;const failed=[];for(const name of names){const grade=/^(10|11|12)/.exec(name)?.[1];if(!grade){failed.push(name+': không xác định khối');continue}try{await b43api('them_lop',{nam_hoc_id:year,ten_lop:name,khoi:grade});ok++}catch(e){failed.push(name+': '+e.message)}}await b43Load();b43notice(`Đã tạo ${ok}/${names.length} lớp.`+(failed.length?' Lỗi: '+failed.join('; '):''),!!failed.length)};
 
+  // V0.2.3 - additive profile staging. Auth membership/roles remain unchanged.
+  let v023Pending=[];
+  const v023Status=(s,bad=false)=>{ $('v023Notice').textContent=s; $('v023Notice').style.color=bad?'#b91c1c':''; };
+  const v023School=()=>{if(!b43School?.id)throw Error('Chưa chọn trường');return b43School.id};
+  const v023Save=async rows=>{
+    let total=0;
+    for(let i=0;i<rows.length;){
+      // Keep each request under the existing 8192-byte Edge Function limit.
+      const batch=[];let bytes=0;
+      while(i<rows.length && batch.length<30){const row=rows[i];const size=new TextEncoder().encode(JSON.stringify(row)).length;
+        if(size>1900)throw Error('Một hồ sơ quá dài');
+        if(batch.length && bytes+size>5300)break;
+        batch.push(row);bytes+=size;i++;
+      }
+      const result=await call('nhap_ho_so',{truong_id:v023School(),du_lieu:{ho_so:batch}});
+      total+=result.so_luong||0;
+      v023Status(`Đã ghi ${total}/${rows.length} hồ sơ. Không đóng trang trong khi nhập.`);
+    }
+    return total;
+  };
+  $('v023Form').onsubmit=async e=>{e.preventDefault();
+    const item={loai:$('v023Type').value,ma_dinh_danh:$('v023Code').value.trim(),ho_ten:$('v023Name').value.trim(),ngay_sinh:$('v023Dob').value,lop:$('v023Class').value.trim(),email:$('v023Email').value.trim(),thong_tin:{}};
+    try{await v023Save([item]);v023Status('Đã lưu hồ sơ; chưa cấp tài khoản đăng nhập.');$('v023Form').reset();await v023Load()}catch(err){v023Status(err.message,true)}
+  };
+  async function v023Load(){try{const data=await call('danh_sach_ho_so',{truong_id:v023School()});
+    const root=$('v023List');root.replaceChildren();for(const p of data){const el=document.createElement('div');el.className='school';
+      const title=document.createElement('strong');title.textContent=p.ho_ten+' · '+p.ma_dinh_danh;
+      const small=document.createElement('small');small.textContent=(p.loai==='student'?'Học sinh':'Giáo viên')+(p.lop?' · '+p.lop:'')+(p.email?' · '+p.email:'');el.append(title,small);root.append(el)}
+    v023Status(`Đã tải ${data.length} hồ sơ (tối đa 500 hồ sơ đầu tiên).`)
+  }catch(err){v023Status(err.message,true)}}
+  $('v023Reload').onclick=v023Load;
+  const v023Date=v=>{
+    if(!v)return '';
+    if(typeof v==='number'){const d=new Date(Date.UTC(1899,11,30)+Math.floor(v)*86400000);return d.toISOString().slice(0,10)}
+    const s=String(v).trim();const m=/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/.exec(s);
+    if(m)return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+    return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:'';
+  };
+  async function v023LoadXLSX(){if(window.XLSX)return;
+    await new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      s.onload=resolve;s.onerror=()=>reject(Error('Không tải được thư viện Excel'));document.head.append(s)});
+    if(!window.XLSX)throw Error('Không đọc được thư viện Excel');
+  }
+  $('v023Preview').onclick=async()=>{v023Pending=[];$('v023Import').hidden=true;
+    const file=$('v023Excel').files?.[0];if(!file){$('v023PreviewInfo').textContent='Hãy chọn tệp Excel.';return}
+    if(!/\.xlsx?$/i.test(file.name)||file.size>5*1024*1024){$('v023PreviewInfo').textContent='Chỉ nhận XLS/XLSX tối đa 5 MB.';return}
+    try{await v023LoadXLSX();const book=XLSX.read(await file.arrayBuffer(),{type:'array',raw:true});const kind=$('v023ImportType').value;
+      const preview=[];let invalid=0;const seen=new Set();
+      for(const sheetName of book.SheetNames){const rows=XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:'',raw:true});
+        const header=rows.findIndex(r=>r.some(v=>String(v).trim()==='Mã định danh Bộ GD&ĐT')&&r.some(v=>String(v).trim()==='Họ tên'));
+        if(header<0)continue;
+        const keys=rows[header].map(x=>String(x).trim());const col=k=>keys.indexOf(k);
+        const classText=rows.slice(0,header).flat().map(String).find(x=>/DANH SÁCH HỌC SINH LỚP\s+/i.test(x))||'';
+        const className=/DANH SÁCH HỌC SINH LỚP\s+([^\s]+)/i.exec(classText)?.[1]||'';
+        for(const row of rows.slice(header+1)){
+          const code=String(row[col('Mã định danh Bộ GD&ĐT')]??'').trim();
+          const name=String(row[col('Họ tên')]??'').trim();if(!code&&!name)continue;
+          if(!code||!name||code.length>64||name.length>200){invalid++;continue}
+          const key=kind+':'+code;if(seen.has(key)){invalid++;continue}seen.add(key);
+          const dob=v023Date(row[col('Ngày sinh')]);
+          const info={gioi_tinh:String(row[col('Giới tính')]??'').slice(0,50),dan_toc:String(row[col('Dân tộc')]??'').slice(0,80)};
+          preview.push({loai:kind,ma_dinh_danh:code,ho_ten:name,ngay_sinh:dob,lop:kind==='student'?className:'',email:'',thong_tin:info});
+        }
+      }
+      v023Pending=preview;const root=$('v023PreviewRows');root.replaceChildren();
+      for(const p of preview.slice(0,12)){const div=document.createElement('div');div.textContent=`${p.ma_dinh_danh} · ${p.ho_ten}${p.lop?' · '+p.lop:''}`;root.append(div)}
+      $('v023PreviewInfo').textContent=`${preview.length} hồ sơ hợp lệ; ${invalid} dòng bỏ qua. Xem trước 12 dòng. Chưa ghi dữ liệu.`;
+      $('v023Import').hidden=!preview.length;
+    }catch(err){$('v023PreviewInfo').textContent='Không đọc được Excel: '+err.message}
+  };
+  $('v023Import').onclick=async()=>{if(!v023Pending.length)return;
+    if(!confirm(`Nhập/cập nhật ${v023Pending.length} hồ sơ tại trường hiện tại? Không tạo tài khoản Auth.`))return;
+    $('v023Import').disabled=true;try{const n=await v023Save(v023Pending);v023Status(`Đã lưu ${n} hồ sơ.`);v023Pending=[];$('v023Import').hidden=true;await v023Load()}
+    catch(err){v023Status('Nhập chưa hoàn tất: '+err.message,true)}finally{$('v023Import').disabled=false}
+  };
   initialize().catch(e=>msg(e.message,true));
 })();

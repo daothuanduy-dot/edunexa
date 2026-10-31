@@ -15,3 +15,9 @@
 .dashboard-modules [data-open-tab]{cursor:pointer}
 .dashboard-modules [data-open-tab]:hover{border-color:#146eb2;background:#f1f7ff}
 .dashboard-modules [data-open-tab]:focus-visible{outline:3px solid #146eb2;outline-offset:3px}
+
+/* V0.2.3 isolated styles */
+.v023box{border-top:1px solid #d8e2ee;margin-top:24px;padding-top:18px}
+.v023box form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px}
+.v023box input,.v023box select{max-width:100%}
+.v023box h3{margin-top:18px}
