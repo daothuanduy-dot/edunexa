@@ -203,6 +203,10 @@
   box.hidden = $('v024Kind').value !== 'tieuchi';
   box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem, chu_ky. Có thể nhập nhiều chu kỳ bằng dấu phẩy.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025PreviewRows" class="b43list"></div>';
   $('v024Form').after(box);
+  $('v025Preview').innerHTML = '<span aria-hidden="true">⌕</span><span>Xem trước Excel</span>';
+  $('v025Preview').classList.add('v024-action');
+  $('v025Import').innerHTML = '<span aria-hidden="true">✓</span><span>Ghi các dòng hợp lệ</span>';
+  $('v025Import').classList.add('v024-action');
   $('v024Kind').addEventListener('change', () => {
     box.hidden = $('v024Kind').value !== 'tieuchi';
   });

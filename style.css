@@ -18,6 +18,25 @@
 
 /* V0.2.3 isolated styles */
 .v023box{border-top:1px solid #d8e2ee;margin-top:24px;padding-top:18px}
+
+/* V0.2.5 compact CRUD navigation and long-list handling */
+.v024-kind-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.v024-kind-tabs button{display:inline-flex;align-items:center;gap:6px}
+.v024-kind-tabs button.selected{background:#146eb2;color:#fff}
+.v024-profile-filter{max-width:260px;margin:0 0 12px}
+.v024-row-list,.v024-scroll-list{max-height:430px;overflow-y:auto;padding:4px 8px 4px 0;overscroll-behavior:contain}
+#v024Rows{max-height:430px;overflow-y:auto;padding:4px 8px 12px 0;overscroll-behavior:contain;scrollbar-gutter:stable}
+.v024-row{border:1px solid #dce6f1;border-radius:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;background:#fff}
+.v024-row-detail{min-width:0;display:grid;gap:5px}
+.v024-row-detail strong{overflow-wrap:anywhere}
+.v024-row-detail small{color:#60758b;overflow-wrap:anywhere}
+.v024-row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.v024-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+#v025ImportBox{margin-top:18px;border:1px solid #dce6f1;border-radius:12px;padding:14px}
+#v025ImportBox button{margin:10px 8px 0 0}
+#v025PreviewRows{max-height:280px;overflow-y:auto;padding-right:8px}
+#b43YearList,#b43ClassList,#b44MemberList,#b43LogList{max-height:360px;overflow-y:auto;padding-right:8px;scrollbar-gutter:stable;overscroll-behavior:contain}
+@media(max-width:600px){.v024-row{align-items:flex-start}.v024-row-actions{width:100%;margin-left:0}.v024-action{flex:1}.v024-profile-filter{max-width:none}}
 .v023box form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:18px}
 .v023box input,.v023box select{max-width:100%}
 .v023box h3{margin-top:18px}

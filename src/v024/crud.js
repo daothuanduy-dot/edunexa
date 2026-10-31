@@ -9,17 +9,22 @@
   let rows = [];
   let areas = [];
   let school = null;
+  let profileFilter = 'all';
 
   const note = message => { $('v024Notice').textContent = message; };
+  const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
+  const fields = {
+    hoso: [['ho_ten', 'Họ tên'], ['ngay_sinh', 'Ngày sinh'], ['lop', 'Lớp'], ['email', 'Email']],
+    mang: [['ma', 'Mã mảng'], ['ten', 'Tên mảng'], ['mo_ta', 'Mô tả']],
+    tieuchi: [['ma', 'Mã tiêu chí'], ['ten', 'Tên tiêu chí'], ['diem', 'Điểm (+/-)']],
+  };
 
   function setTabActive(v024Active) {
-    document.querySelectorAll('[data-b43-tab]').forEach(button => {
-      button.classList.remove('selected');
-    });
+    document.querySelectorAll('[data-b43-tab]').forEach(button => button.classList.remove('selected'));
     $('v024Tab').classList.toggle('selected', v024Active);
   }
 
-  async function request(hanh_dong, fields) {
+  async function request(hanh_dong, fieldsData) {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) throw Error('Chưa đăng nhập');
     const response = await fetch(`${cfg.url}/functions/v1/quan-tri-truong`, {
@@ -29,7 +34,7 @@
         apikey: cfg.publishableKey,
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ hanh_dong, ...fields }),
+      body: JSON.stringify({ hanh_dong, ...fieldsData }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -53,12 +58,60 @@
     return request(action, { truong_id: school.id, du_lieu: data });
   }
 
-  const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
-  const fields = {
-    hoso: [['ho_ten', 'Họ tên'], ['ngay_sinh', 'Ngày sinh'], ['lop', 'Lớp'], ['email', 'Email']],
-    mang: [['ma', 'Mã mảng'], ['ten', 'Tên mảng'], ['mo_ta', 'Mô tả']],
-    tieuchi: [['ma', 'Mã tiêu chí'], ['ten', 'Tên tiêu chí'], ['diem', 'Điểm (+/-)']],
-  };
+  function setupKindTabs() {
+    const select = $('v024Kind');
+    const originalLabel = select.closest('label');
+    const tabs = el('div', { className: 'v024-kind-tabs', role: 'tablist', 'aria-label': 'Loại dữ liệu' });
+    for (const option of select.options) {
+      const button = el('button', {
+        type: 'button',
+        className: 'outline',
+        textContent: option.textContent,
+        'aria-controls': 'v024Rows',
+      });
+      button.dataset.kind = option.value;
+      button.onclick = () => {
+        select.value = option.value;
+        syncKindControls();
+        load();
+      };
+      tabs.append(button);
+    }
+    originalLabel.hidden = true;
+    originalLabel.before(tabs);
+
+    const profileLabel = el('label', { className: 'v024-profile-filter', textContent: 'Đối tượng hồ sơ' });
+    const profileSelect = el('select', { id: 'v024ProfileFilter' });
+    for (const [value, text] of [['all', 'Tất cả hồ sơ'], ['student', 'Học sinh'], ['teacher', 'Giáo viên']]) {
+      profileSelect.append(el('option', { value, textContent: text }));
+    }
+    profileSelect.onchange = () => { profileFilter = profileSelect.value; renderRows(); };
+    profileLabel.append(profileSelect);
+    $('v024Refresh').before(profileLabel);
+    const iconButton = (button, symbol) => {
+      if (!button || button.dataset.iconReady) return;
+      button.dataset.iconReady = 'true';
+      const label = button.textContent;
+      button.innerHTML = `<span aria-hidden="true">${symbol}</span><span>${label}</span>`;
+      button.classList.add('v024-action');
+    };
+    iconButton($('v024Refresh'), '↻');
+    iconButton($('v024Clear'), '＋');
+    iconButton($('v024Form').querySelector('button[type=submit]'), '✓');
+
+    function syncKindControls() {
+      const kind = select.value;
+      tabs.querySelectorAll('button').forEach(button => {
+        const active = button.dataset.kind === kind;
+        button.classList.toggle('selected', active);
+        button.setAttribute('aria-selected', String(active));
+      });
+      profileLabel.hidden = kind !== 'hoso';
+      if (kind !== 'hoso') profileFilter = 'all';
+    }
+    window.edunexaSyncV024Kind = syncKindControls;
+    syncKindControls();
+  }
 
   function renderForm(row = {}) {
     const kind = $('v024Kind').value;
@@ -72,7 +125,6 @@
       $('v024Form').querySelector('button[type=submit]').disabled = true;
       return;
     }
-
     $('v024Form').querySelector('button[type=submit]').disabled = false;
     for (const [key, title] of fields[kind]) {
       const label = el('label', { textContent: title });
@@ -82,14 +134,10 @@
         required: key === 'ho_ten' || key === 'ma' || key === 'ten',
       });
       if (key === 'ngay_sinh') input.type = 'date';
-      if (key === 'diem') {
-        input.type = 'number';
-        input.step = '0.01';
-      }
+      if (key === 'diem') { input.type = 'number'; input.step = '0.01'; }
       label.append(input);
       root.append(label);
     }
-
     if (kind === 'tieuchi') {
       const areaLabel = el('label', { textContent: 'Mảng thi đua' });
       const areaSelect = el('select', { id: 'v024_mang_id' });
@@ -100,9 +148,7 @@
 
       const targetLabel = el('label', { textContent: 'Đối tượng' });
       const targetSelect = el('select', { id: 'v024_doi_tuong' });
-      for (const [value, text] of [['student', 'Cá nhân'], ['class', 'Lớp']]) {
-        targetSelect.append(el('option', { value, textContent: text }));
-      }
+      for (const [value, text] of [['student', 'Cá nhân'], ['class', 'Lớp']]) targetSelect.append(el('option', { value, textContent: text }));
       targetSelect.value = row.doi_tuong || 'student';
       targetLabel.append(targetSelect);
       root.append(targetLabel);
@@ -111,11 +157,7 @@
       group.append(el('legend', { textContent: 'Chu kỳ (chọn nhiều)' }));
       for (const [value, text] of [['week', 'Tuần'], ['month', 'Tháng'], ['semester', 'Học kỳ'], ['year', 'Năm học']]) {
         const label = el('label', { textContent: text });
-        const checkbox = el('input', {
-          type: 'checkbox',
-          value,
-          checked: (row.chu_ky || ['week']).includes(value),
-        });
+        const checkbox = el('input', { type: 'checkbox', value, checked: (row.chu_ky || ['week']).includes(value) });
         checkbox.name = 'v024_cycle';
         label.prepend(checkbox);
         group.append(label);
@@ -124,49 +166,56 @@
     }
   }
 
+  function renderRows() {
+    const kind = $('v024Kind').value;
+    const visibleRows = kind === 'hoso' && profileFilter !== 'all'
+      ? rows.filter(row => row.loai === profileFilter)
+      : rows;
+    const root = $('v024Rows');
+    root.replaceChildren();
+    for (const row of visibleRows) {
+      const item = el('article', { className: 'v024-row' });
+      const detail = el('div', { className: 'v024-row-detail' });
+      const title = row.ho_ten || row.ten || row.ma;
+      const type = row.loai === 'student' ? 'Học sinh' : row.loai === 'teacher' ? 'Giáo viên' : '';
+      const summary = kind === 'hoso'
+        ? [type, row.ma_dinh_danh, row.lop, row.email, row.ngay_sinh].filter(Boolean).join(' · ')
+        : kind === 'mang'
+          ? [row.ma, row.mo_ta].filter(Boolean).join(' · ')
+          : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', row.diem, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
+      detail.append(el('strong', { textContent: title }), el('small', { textContent: summary }));
+      const actions = el('div', { className: 'v024-row-actions' });
+      const edit = el('button', { type: 'button', className: 'outline v024-action', title: 'Sửa bản ghi' });
+      edit.innerHTML = '<span aria-hidden="true">✎</span><span>Sửa</span>';
+      edit.onclick = () => { renderForm(row); $('v024Form').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+      const archive = el('button', { type: 'button', className: 'outline v024-action', title: 'Ngừng hiệu lực bản ghi' });
+      archive.innerHTML = '<span aria-hidden="true">⏸</span><span>Ngừng hiệu lực</span>';
+      archive.onclick = async () => {
+        if (!confirm('Xác nhận ngừng hiệu lực bản ghi?')) return;
+        try {
+          await api(`${kind}_archive`, { id: row.id, ngay_cap_nhat: row.ngay_cap_nhat });
+          await load();
+          note('Đã ngừng hiệu lực');
+        } catch (error) { note(error.message); }
+      };
+      actions.append(edit, archive);
+      item.append(detail, actions);
+      root.append(item);
+    }
+    note(`Đã tải ${rows.length} bản ghi; đang hiển thị ${visibleRows.length}.`);
+  }
+
   async function load() {
     try {
       const kind = $('v024Kind').value;
       if (kind === 'tieuchi') areas = await api('mang_list');
       rows = await api(`${kind}_list`);
       renderForm();
-      const root = $('v024Rows');
-      root.replaceChildren();
-      for (const row of rows) {
-        const item = el('div', { className: 'school' });
-        item.append(
-          el('strong', { textContent: row.ho_ten || row.ten }),
-          el('small', {
-            textContent: [row.ma_dinh_danh || row.ma, row.lop, row.diem]
-              .filter(value => value !== undefined && value !== null)
-              .join(' · '),
-          }),
-        );
-        const edit = el('button', { type: 'button', className: 'outline', textContent: 'Sửa' });
-        edit.onclick = () => {
-          renderForm(row);
-          $('v024Form').scrollIntoView({ behavior: 'smooth' });
-        };
-        const archive = el('button', { type: 'button', className: 'outline', textContent: 'Ngừng hiệu lực' });
-        archive.onclick = async () => {
-          if (!confirm('Xác nhận ngừng hiệu lực bản ghi?')) return;
-          try {
-            await api(`${kind}_archive`, { id: row.id, ngay_cap_nhat: row.ngay_cap_nhat });
-            await load();
-            note('Đã ngừng hiệu lực');
-          } catch (error) {
-            note(error.message);
-          }
-        };
-        item.append(edit, archive);
-        root.append(item);
-      }
-      note(`Đã tải ${rows.length} bản ghi.`);
-    } catch (error) {
-      note(error.message);
-    }
+      renderRows();
+    } catch (error) { note(error.message); }
   }
 
+  setupKindTabs();
   $('v024Tab').onclick = () => {
     document.querySelectorAll('.b43page').forEach(page => { page.hidden = true; });
     $('v024Panel').hidden = false;
@@ -174,15 +223,11 @@
     school = null;
     load();
   };
-
-  document.querySelectorAll('[data-b43-tab]').forEach(button => {
-    button.addEventListener('click', () => {
-      $('v024Panel').hidden = true;
-      $('v024Tab').classList.remove('selected');
-    });
-  });
-
-  $('v024Kind').onchange = load;
+  document.querySelectorAll('[data-b43-tab]').forEach(button => button.addEventListener('click', () => {
+    $('v024Panel').hidden = true;
+    $('v024Tab').classList.remove('selected');
+  }));
+  $('v024Kind').onchange = () => { window.edunexaSyncV024Kind?.(); load(); };
   $('v024Refresh').onclick = load;
   $('v024Clear').onclick = () => renderForm();
   $('v024Form').onsubmit = async event => {
@@ -195,21 +240,13 @@
       data.mang_id = $('v024_mang_id').value;
       data.doi_tuong = $('v024_doi_tuong').value;
       data.chu_ky = [...document.querySelectorAll('[name=v024_cycle]:checked')].map(box => box.value);
-      if (!data.chu_ky.length) {
-        note('Chọn ít nhất một chu kỳ');
-        return;
-      }
+      if (!data.chu_ky.length) { note('Chọn ít nhất một chu kỳ'); return; }
     }
-    if (id) {
-      data.id = id;
-      data.ngay_cap_nhat = $('v024Updated').value;
-    }
+    if (id) { data.id = id; data.ngay_cap_nhat = $('v024Updated').value; }
     try {
       await api(`${kind}_${id ? 'update' : 'create'}`, data);
       await load();
       note('Đã lưu thành công');
-    } catch (error) {
-      note(error.message);
-    }
+    } catch (error) { note(error.message); }
   };
 })();
