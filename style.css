@@ -24,6 +24,9 @@
 .v024-kind-tabs button{display:inline-flex;align-items:center;gap:6px}
 .v024-kind-tabs button.selected{background:#146eb2;color:#fff}
 .v024-profile-filter{max-width:260px;margin:0 0 12px}
+.v024-area-filter{max-width:420px;margin:0 0 12px}
+.v024-row-parent{font-size:12px;color:#1467a5;font-weight:700}
+#v024Fields>p.error{margin:0;padding:10px 12px;border:1px solid #f1c6c6;border-radius:8px;background:#fff6f6}
 .v024-row-list,.v024-scroll-list{max-height:430px;overflow-y:auto;padding:4px 8px 4px 0;overscroll-behavior:contain}
 #v024Rows{max-height:430px;overflow-y:auto;padding:4px 8px 12px 0;overscroll-behavior:contain;scrollbar-gutter:stable}
 .v024-row{border:1px solid #dce6f1;border-radius:12px;padding:12px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;background:#fff}

@@ -7,9 +7,13 @@
 
   const sb = window.supabase.createClient(cfg.url, cfg.publishableKey);
   let rows = [];
+  let criteriaRows = [];
   let areas = [];
   let school = null;
   let profileFilter = 'all';
+  let selectedAreaId = 'all';
+  let areaFilterSelect = null;
+  let areaFilterLabel = null;
 
   const note = message => { $('v024Notice').textContent = message; };
   const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
@@ -63,10 +67,16 @@
     const originalLabel = select.closest('label');
     const tabs = el('div', { className: 'v024-kind-tabs', role: 'tablist', 'aria-label': 'Loại dữ liệu' });
     for (const option of select.options) {
+      const tabLabel = option.value === 'mang'
+        ? 'Mảng thi đua · cấp cha'
+        : option.value === 'tieuchi'
+          ? 'Tiêu chí thi đua · cấp con'
+          : option.textContent;
       const button = el('button', {
         type: 'button',
+        role: 'tab',
         className: 'outline',
-        textContent: option.textContent,
+        textContent: tabLabel,
         'aria-controls': 'v024Rows',
       });
       button.dataset.kind = option.value;
@@ -88,6 +98,17 @@
     profileSelect.onchange = () => { profileFilter = profileSelect.value; renderRows(); };
     profileLabel.append(profileSelect);
     $('v024Refresh').before(profileLabel);
+    areaFilterLabel = el('label', { className: 'v024-area-filter', textContent: 'Mảng đang xem' });
+    areaFilterSelect = el('select', { id: 'v024AreaFilter' });
+    areaFilterSelect.append(el('option', { value: 'all', textContent: 'Tất cả mảng thi đua' }));
+    areaFilterSelect.onchange = () => {
+      selectedAreaId = areaFilterSelect.value;
+      const parentSelect = $('v024_mang_id');
+      if (selectedAreaId !== 'all' && parentSelect && !$('v024Id').value) parentSelect.value = selectedAreaId;
+      renderRows();
+    };
+    areaFilterLabel.append(areaFilterSelect);
+    $('v024Refresh').before(areaFilterLabel);
     const iconButton = (button, symbol) => {
       if (!button || button.dataset.iconReady) return;
       button.dataset.iconReady = 'true';
@@ -107,14 +128,50 @@
         button.setAttribute('aria-selected', String(active));
       });
       profileLabel.hidden = kind !== 'hoso';
+      areaFilterLabel.hidden = kind !== 'tieuchi';
       if (kind !== 'hoso') profileFilter = 'all';
     }
     window.edunexaSyncV024Kind = syncKindControls;
     syncKindControls();
   }
 
+  function syncAreaFilterOptions() {
+    if (!areaFilterSelect) return;
+    const current = selectedAreaId;
+    areaFilterSelect.replaceChildren(el('option', { value: 'all', textContent: 'Tất cả mảng thi đua' }));
+    for (const area of areas) {
+      areaFilterSelect.append(el('option', {
+        value: area.id,
+        textContent: `${area.ma} · ${area.ten}`,
+      }));
+    }
+    const stillExists = current === 'all' || areas.some(area => area.id === current);
+    selectedAreaId = stillExists ? current : 'all';
+    areaFilterSelect.value = selectedAreaId;
+  }
+
+  function areaName(id) {
+    return areas.find(area => area.id === id)?.ten || 'Chưa xác định mảng cha';
+  }
+
+  function openCriteriaForArea(area) {
+    selectedAreaId = area.id;
+    $('v024Kind').value = 'tieuchi';
+    window.edunexaSyncV024Kind?.();
+    load();
+  }
+
   function renderForm(row = {}) {
     const kind = $('v024Kind').value;
+    const submit = $('v024Form').querySelector('button[type=submit]');
+    const actionLabel = kind === 'hoso' && !row.id
+      ? 'Tạo hồ sơ ở tab Người dùng'
+      : row.id
+        ? `Cập nhật ${kind === 'mang' ? 'mảng thi đua' : kind === 'tieuchi' ? 'tiêu chí' : 'hồ sơ'}`
+        : `Tạo ${kind === 'mang' ? 'mảng thi đua' : 'tiêu chí'}`;
+    const submitText = submit.querySelector('span:last-child');
+    if (submitText) submitText.textContent = actionLabel;
+    else submit.textContent = actionLabel;
     $('v024Id').value = row.id || '';
     $('v024Updated').value = row.ngay_cap_nhat || '';
     const root = $('v024Fields');
@@ -122,10 +179,10 @@
 
     if (kind === 'hoso' && !row.id) {
       root.textContent = 'Để thêm hồ sơ, sử dụng biểu mẫu nhập hồ sơ V0.2.3 ở tab Người dùng và vai trò.';
-      $('v024Form').querySelector('button[type=submit]').disabled = true;
+      submit.disabled = true;
       return;
     }
-    $('v024Form').querySelector('button[type=submit]').disabled = false;
+    submit.disabled = false;
     for (const [key, title] of fields[kind]) {
       const label = el('label', { textContent: title });
       const input = el('input', {
@@ -139,10 +196,10 @@
       root.append(label);
     }
     if (kind === 'tieuchi') {
-      const areaLabel = el('label', { textContent: 'Mảng thi đua' });
+      const areaLabel = el('label', { textContent: 'Mảng thi đua (mảng cha)' });
       const areaSelect = el('select', { id: 'v024_mang_id' });
       for (const area of areas) areaSelect.append(el('option', { value: area.id, textContent: area.ten }));
-      areaSelect.value = row.mang_id || areas[0]?.id || '';
+      areaSelect.value = row.mang_id || (selectedAreaId !== 'all' ? selectedAreaId : areas[0]?.id || '');
       areaLabel.append(areaSelect);
       root.append(areaLabel);
 
@@ -163,6 +220,10 @@
         group.append(label);
       }
       root.append(group);
+      if (!areas.length) {
+        root.prepend(el('p', { className: 'error', textContent: 'Chưa có mảng thi đua. Hãy tạo mảng trước khi thêm tiêu chí.' }));
+        submit.disabled = true;
+      }
     }
   }
 
@@ -170,7 +231,9 @@
     const kind = $('v024Kind').value;
     const visibleRows = kind === 'hoso' && profileFilter !== 'all'
       ? rows.filter(row => row.loai === profileFilter)
-      : rows;
+      : kind === 'tieuchi' && selectedAreaId !== 'all'
+        ? rows.filter(row => row.mang_id === selectedAreaId)
+        : rows;
     const root = $('v024Rows');
     root.replaceChildren();
     for (const row of visibleRows) {
@@ -184,7 +247,17 @@
           ? [row.ma, row.mo_ta].filter(Boolean).join(' · ')
           : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', row.diem, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
       detail.append(el('strong', { textContent: title }), el('small', { textContent: summary }));
+      if (kind === 'tieuchi') {
+        detail.append(el('span', { className: 'v024-row-parent', textContent: `Mảng cha: ${areaName(row.mang_id)}` }));
+      }
       const actions = el('div', { className: 'v024-row-actions' });
+      if (kind === 'mang') {
+        const childCount = criteriaRows.filter(item => item.mang_id === row.id).length;
+        const children = el('button', { type: 'button', className: 'outline v024-action', title: 'Xem các tiêu chí thuộc mảng này' });
+        children.innerHTML = `<span aria-hidden="true">→</span><span>Tiêu chí (${childCount})</span>`;
+        children.onclick = () => openCriteriaForArea(row);
+        actions.append(children);
+      }
       const edit = el('button', { type: 'button', className: 'outline v024-action', title: 'Sửa bản ghi' });
       edit.innerHTML = '<span aria-hidden="true">✎</span><span>Sửa</span>';
       edit.onclick = () => { renderForm(row); $('v024Form').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -202,14 +275,28 @@
       item.append(detail, actions);
       root.append(item);
     }
-    note(`Đã tải ${rows.length} bản ghi; đang hiển thị ${visibleRows.length}.`);
+    if (kind === 'tieuchi' && selectedAreaId !== 'all') {
+      note(`Đã tải ${rows.length} tiêu chí; đang hiển thị ${visibleRows.length} tiêu chí thuộc mảng “${areaName(selectedAreaId)}”.`);
+    } else {
+      note(`Đã tải ${rows.length} ${kind === 'mang' ? 'mảng thi đua' : kind === 'tieuchi' ? 'tiêu chí' : 'hồ sơ'}; đang hiển thị ${visibleRows.length}.`);
+    }
   }
 
   async function load() {
     try {
       const kind = $('v024Kind').value;
-      if (kind === 'tieuchi') areas = await api('mang_list');
-      rows = await api(`${kind}_list`);
+      if (kind === 'tieuchi') {
+        areas = await api('mang_list');
+        rows = await api('tieuchi_list');
+        criteriaRows = rows;
+      } else if (kind === 'mang') {
+        rows = await api('mang_list');
+        areas = rows;
+        criteriaRows = await api('tieuchi_list');
+      } else {
+        rows = await api(`${kind}_list`);
+      }
+      syncAreaFilterOptions();
       renderForm();
       renderRows();
     } catch (error) { note(error.message); }
