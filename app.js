@@ -14,6 +14,35 @@
     for(const s of items){const el=document.createElement('article');el.className='school';const title=document.createElement('strong');title.textContent=s.ten_truong;const info=document.createElement('small');info.textContent=`${s.ma_truong} · ${statuses[s.trang_thai]||s.trang_thai}`;el.append(title,info);
       if(next[s.trang_thai]){const b=document.createElement('button');b.className='outline';b.textContent=`Chuyển sang: ${statuses[next[s.trang_thai][0]] || next[s.trang_thai][0]}`;b.onclick=async()=>{if(!confirm(`Xác nhận thay đổi trạng thái của ${s.ten_truong}?`))return;try{await call(next[s.trang_thai][1],{id:s.id,trang_thai:next[s.trang_thai][0]});msg('Đã cập nhật trạng thái');await refresh()}catch(e){msg(e.message,true)}};el.append(b)}if(['approved','provisioning','ready','active'].includes(s.trang_thai)){const row=document.createElement('div');row.className='assign-row';const input=document.createElement('input');input.placeholder='UUID tài khoản quản trị trường';input.setAttribute('aria-label','UUID quản trị trường');const assign=document.createElement('button');assign.type='button';assign.className='outline';assign.textContent='Gán quản trị viên';assign.onclick=async()=>{if(!confirm('Gán vai trò school_admin cho UID đã nhập tại trường này?'))return;try{await call('gan_quan_tri',{id:s.id,nguoi_dung_id:input.value.trim()});msg('Đã gán quản trị viên trường');input.value=''}catch(e){msg(e.message,true)}};row.append(input,assign);el.append(row)}root.append(el)}
   }catch(e){msg(e.message,true)}}
+  let dashboardRequestId=0;
+  const resetDashboard=()=>{
+    for(const id of ['countYears','countClasses','countMembers']) $(id).textContent='—';
+    for(const id of ['hintYears','hintClasses','hintMembers']) $(id).textContent='Đang tải dữ liệu';
+  };
+  async function loadSchoolDashboard(school){
+    const requestId=++dashboardRequestId;
+    resetDashboard();
+    $('schoolDataNotice').textContent='Đang tải thống kê theo quyền quản trị trường...';
+    try{
+      const result=await call('thong_ke_dashboard',{truong_id:school.id});
+      if(requestId!==dashboardRequestId || $('school').hidden) return;
+      if(result.truong_id!==school.id)throw Error('Dữ liệu trả về không đúng trường');
+      for(const [count,hint,key] of [
+        ['countYears','hintYears','so_nam_hoc'],
+        ['countClasses','hintClasses','so_lop_hoc'],
+        ['countMembers','hintMembers','so_nguoi_dung']]){
+        if(!Number.isSafeInteger(result[key]) || result[key]<0)throw Error('Số liệu không hợp lệ');
+        $(count).textContent=String(result[key]);
+        $(hint).textContent='Dữ liệu thực từ Supabase';
+      }
+      $('schoolDataNotice').textContent='Đã đồng bộ số liệu trường. Chỉ số học sinh sẽ bổ sung khi xác định nguồn dữ liệu.';
+    }catch(e){
+      if(requestId!==dashboardRequestId || $('school').hidden)return;
+      resetDashboard();
+      for(const id of ['hintYears','hintClasses','hintMembers'])$(id).textContent='Không tải được dữ liệu';
+      $('schoolDataNotice').textContent='Lỗi tải Dashboard: '+e.message;
+    }
+  }
   let recoveryMode=false;
   const panels=['login','recover','reset','app','school','choose'];
   function view(which){for(const id of panels)$(id).hidden=id!==which;$('logout').hidden=!['app','school','choose'].includes(which)}
@@ -27,6 +56,7 @@
     for(const school of ctx.schools||[])choices.push({label:school.ten_truong+' · '+school.ma_truong,type:'school',school});
     if(!choices.length){view('login');msg('Tài khoản chưa được cấp quyền quản trị EduNexa.',true);return;}
     const select=(choice)=>{
+      ++dashboardRequestId;
       if(choice.type==='platform'){view('app');refresh();return;}
       $('schoolName').textContent=choice.school.ten_truong;
       $('schoolInfo').textContent='Mã trường: '+choice.school.ma_truong;
@@ -34,8 +64,8 @@
       $('schoolCode').textContent=choice.school.ma_truong;
       $('schoolRole').textContent='Quản trị trường';
       $('switchContext').hidden=choices.length<2;
-      $('schoolDataNotice').textContent='Các thống kê năm học, lớp học và người dùng sẽ được kết nối sau khi xác minh cấu trúc cơ sở dữ liệu và triển khai API chỉ đọc.';
       view('school');
+      loadSchoolDashboard(choice.school);
     };
     if(choices.length===1){select(choices[0]);return;}
     const root=$('contexts');root.replaceChildren();
@@ -96,7 +126,7 @@
   };
   $('loginForm').onsubmit=async e=>{e.preventDefault();try{const {error}=await sb.auth.signInWithPassword({email:$('email').value,password:$('password').value});if(error)throw error;$('password').value='';msg('Đã đăng nhập');await show()}catch(err){msg(err.message,true)}};
   $('switchContext').onclick=()=>show().catch(e=>msg(e.message,true));
-  $('logout').onclick=async()=>{await sb.auth.signOut();msg('Đã đăng xuất');await show()};
+  $('logout').onclick=async()=>{++dashboardRequestId;await sb.auth.signOut();msg('Đã đăng xuất');await show()};
   $('refresh').onclick=refresh;
   $('createForm').onsubmit=async e=>{e.preventDefault();try{await call('tao_truong',{ma_truong:$('code').value,ten_truong:$('name').value,cap_hoc:$('level').value});msg('Đã tạo trường ở trạng thái bản nháp');e.target.reset();await refresh()}catch(err){msg(err.message,true)}};
   initialize().catch(e=>msg(e.message,true));
