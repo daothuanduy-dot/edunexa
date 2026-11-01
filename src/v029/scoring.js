@@ -49,6 +49,9 @@
       const recorderSchools = await request('scoring_recorder_context');
       state.school = (recorderSchools || []).find(item => item.ma_truong === code);
     }
+    if (!state.school && window.edunexaTeacherPermissions) {
+      state.school = window.edunexaTeacherPermissions;
+    }
     if (!state.school) throw Error('Không xác định được trường đang chọn');
   }
 
@@ -62,6 +65,14 @@
 
   function selectedValue(name) {
     return document.querySelector(`input[name="${name}"]:checked`)?.value || '';
+  }
+
+  function teacherCanRecord() {
+    return !window.edunexaTeacherPermissions || window.edunexaTeacherPermissions.scoring_record === true;
+  }
+
+  function teacherCanViewHistory() {
+    return !window.edunexaTeacherPermissions || window.edunexaTeacherPermissions.scoring_history === true;
   }
 
   function selectedCriterion() {
@@ -177,6 +188,7 @@
   }
 
   async function loadTargets() {
+    if (!teacherCanRecord()) return;
     const areaId = $('v029RecordArea')?.value;
     const targetType = selectedValue('v029RecordTarget');
     const select = $('v029RecordTargetSelect');
@@ -470,7 +482,7 @@
         make('small', { textContent: `${record.ma_mang_tai_thoi_diem || record.ma_mang || ''} · ${record.doi_tuong === 'student' ? 'cá nhân' : 'tập thể/lớp'} ${record.doi_tuong_ma} · ghi nhận lúc ${recordedAt}` }),
         make('small', { textContent: `Tài khoản: ${record.nguoi_ghi_nhan_email || record.nguoi_ghi_nhan_id || 'không xác định'} · ${record.noi_dung || 'Không có ghi chú'} · trạng thái ${record.trang_thai}` }),
       ]);
-      if (record.trang_thai === 'recorded') {
+      if (record.trang_thai === 'recorded' && teacherCanRecord()) {
         const actions = make('div', { className: 'v029-entry-actions' });
         const voidButton = make('button', { type: 'button', className: 'outline', textContent: '⏸ Ngừng hiệu lực' });
         voidButton.onclick = async () => {
@@ -502,15 +514,19 @@
       const [areas, criteria, records] = await Promise.allSettled([
         schoolApi('mang_list'),
         schoolApi('tieuchi_list'),
-        schoolApi('ghi_nhan_list'),
+        teacherCanViewHistory() ? schoolApi('ghi_nhan_list') : Promise.resolve([]),
       ]);
       state.areas = areas.status === 'fulfilled' ? areas.value : [];
       state.criteria = criteria.status === 'fulfilled' ? criteria.value : [];
       state.records = records.status === 'fulfilled' ? records.value : [];
       renderAreaOptions();
       renderWorkflow();
-      void loadTargets();
+      if (teacherCanRecord()) void loadTargets();
       renderRecords();
+      const workflow = panel.querySelector('.v029-workflow');
+      if (workflow) workflow.hidden = !teacherCanRecord();
+      const historyCard = $('v029RecordList')?.closest('.v029-card');
+      if (historyCard) historyCard.hidden = !teacherCanViewHistory();
       const failures = [areas, criteria, records].filter(item => item.status === 'rejected');
       setNotice(failures.length ? 'Đã tải dữ liệu được phép xem. Một số dữ liệu chưa tải được.' : 'Đã tải dữ liệu ghi nhận. Chưa tính điểm tổng hợp.', false);
     } catch (error) { setNotice(error.message, true); }
@@ -521,6 +537,10 @@
     const v024Panel = $('v024Panel');
     if (v024Panel) v024Panel.hidden = true;
     panel.hidden = false;
+    const workflow = panel.querySelector('.v029-workflow');
+    if (workflow) workflow.hidden = !teacherCanRecord();
+    const historyCard = $('v029RecordList')?.closest('.v029-card');
+    if (historyCard) historyCard.hidden = !teacherCanViewHistory();
     document.querySelectorAll('[data-b43-tab]').forEach(button => button.classList.toggle('selected', button === tabButton));
     $('v024Tab')?.classList.remove('selected');
     load();
@@ -631,9 +651,11 @@
     criteriaStep.insertBefore(criterionToolbar, criteriaStep.querySelector('.v029-scan-row'));
     studentSearchLabel.hidden = true;
     const recordForm = $('v029RecordForm');
+    const captureCard = recordForm.closest('.v029-card');
     const cycleLabel = $('v029RecordCycle').closest('label');
     const valueLabel = $('v029RecordValue').closest('label');
     const noteLabel = $('v029RecordContent').closest('label');
+    const criterionHint = $('v029CriterionHint');
     criteriaStep.append(criterionLabel);
     noteLabel.firstChild.textContent = 'Ghi chú (không bắt buộc)';
     $('v029RecordDate').closest('label').remove();
@@ -643,12 +665,11 @@
     submitButton.textContent = 'Lưu ghi nhận';
     submitButton.classList.add('v029-wide-field');
     const cancelButton = make('button', { id: 'v029RecordCancel', type: 'button', className: 'outline v029-wide-field', textContent: 'Hủy' });
-    recordForm.replaceChildren(cycleLabel, valueLabel, noteLabel, submitButton, cancelButton);
-    $('v029CriterionHint').classList.add('v029-wide-field');
-    criteriaStep.append($('v029CriterionHint'), recordForm);
+    criterionHint.classList.add('v029-wide-field');
+    recordForm.replaceChildren(cycleLabel, valueLabel, noteLabel, criterionHint, submitButton, cancelButton);
+    criteriaStep.append(recordForm);
     const scoringGrid = panel.querySelector('.v029-scoring-grid');
     const recordCard = $('v029RecordList').closest('.v029-card');
-    const captureCard = $('v029RecordForm').closest('.v029-card');
     const recordList = $('v029RecordList');
     recordCard.querySelector('h3').textContent = 'Lịch sử ghi nhận';
     recordCard.append(recordList);
@@ -753,8 +774,10 @@
           noi_dung: $('v029RecordContent').value.trim(),
         });
         resetRecordInputs(false);
-        await loadRecords();
-        setNotice('Đã lưu ghi nhận. Điểm và thông tin tại thời điểm lưu đã được đưa vào lịch sử.');
+        if (teacherCanViewHistory()) await loadRecords();
+        setNotice(teacherCanViewHistory()
+          ? 'Đã lưu ghi nhận. Điểm và thông tin tại thời điểm lưu đã được đưa vào lịch sử.'
+          : 'Đã lưu ghi nhận thành công.');
       } catch (error) { setNotice(error.message, true); }
       finally { submitButton.disabled = false; }
     };
