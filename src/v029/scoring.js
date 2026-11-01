@@ -5,7 +5,7 @@
   const cfg = window.EDUNEXA_CONFIG;
   if (!cfg || !window.supabase) return;
   const sb = window.supabase.createClient(cfg.url, cfg.publishableKey);
-  const state = { school: null, areas: [], criteria: [], members: [], assignments: [], records: [], targets: { student: [], class: [] }, filters: { grade: '', className: '', search: '', student: '', criterion: '' } };
+  const state = { school: null, areas: [], criteria: [], members: [], assignments: [], records: [], targets: { student: [], class: [] }, filters: { grade: '', className: '', search: '', student: '', criterion: '', direction: 'positive' } };
   let tabButton = null;
   let panel = null;
 
@@ -81,6 +81,18 @@
       code.includes(normalizedQuery);
   }
 
+  function criterionScore(criterion) {
+    const raw = criterion.che_do_diem === 'flexible'
+      ? criterion.diem_gioi_han ?? criterion.diem
+      : criterion.diem_co_dinh ?? criterion.diem;
+    const score = Number(raw);
+    return Number.isFinite(score) ? score : null;
+  }
+
+  function cycleName(cycle) {
+    return ({ week: 'Tuần', month: 'Tháng', semester: 'Học kỳ', year: 'Năm học' })[cycle] || cycle;
+  }
+
   function renderAreaOptions() {
     const selects = [$('v029AssignmentArea'), $('v029RecordArea')].filter(Boolean);
     for (const select of selects) {
@@ -101,9 +113,10 @@
     select.append(make('option', { value: '', textContent: 'Chọn hình thức ghi nhận...', disabled: true, selected: true }));
     const targetType = selectedValue('v029RecordTarget');
     for (const criterion of state.criteria.filter(item => item.mang_id === areaId && item.doi_tuong === targetType)) {
+      const score = criterionScore(criterion);
       const mode = criterion.che_do_diem === 'flexible'
-        ? `linh hoạt ≤ ${criterion.diem_gioi_han ?? criterion.diem}`
-        : `cố định ${criterion.diem_co_dinh ?? criterion.diem}`;
+        ? `linh hoạt · giới hạn ${score ?? 'chưa cấu hình'}`
+        : `cố định ${score ?? 'chưa cấu hình'}`;
       select.append(make('option', { value: criterion.id, textContent: `${criterion.ma} · ${criterion.ten} · ${mode}` }));
     }
     if ([...select.options].some(option => option.value === previous)) select.value = previous;
@@ -121,21 +134,40 @@
         valueInput.required = false;
         valueInput.closest('label').hidden = true;
       }
+      if ($('v029RecordForm')) $('v029RecordForm').hidden = true;
       return;
     }
+    const cycles = Array.isArray(criterion.chu_ky) ? criterion.chu_ky : [];
+    const cycleSelect = $('v029RecordCycle');
+    const cycleLabel = cycleSelect?.closest('label');
+    if (cycleSelect) {
+      const previousCycle = cycleSelect.value;
+      cycleSelect.replaceChildren(...cycles.map(cycle => make('option', { value: cycle, textContent: cycleName(cycle) })));
+      cycleSelect.value = cycles.includes(previousCycle) ? previousCycle : (cycles[0] || '');
+      cycleSelect.required = cycles.length > 0;
+      if (cycleLabel) cycleLabel.hidden = cycles.length <= 1;
+    }
+    const score = criterionScore(criterion);
     const mode = criterion.che_do_diem === 'flexible'
-      ? `Điểm linh hoạt, giới hạn ${criterion.diem_gioi_han ?? criterion.diem}`
-      : `Điểm cố định ${criterion.diem_co_dinh ?? criterion.diem}`;
-    if (hint) hint.textContent = `${mode}. Đối tượng áp dụng: ${criterion.doi_tuong === 'student' ? 'cá nhân' : 'tập thể/lớp'}.`;
+      ? `Điểm linh hoạt, giới hạn ${score ?? 'chưa cấu hình'}`
+      : `Điểm cố định ${score ?? 'chưa cấu hình'}`;
+    if (hint) hint.textContent = `${mode}. ${cycles.length ? `Chu kỳ: ${cycles.map(cycleName).join(', ')}.` : 'Chưa cấu hình chu kỳ.'}`;
     if (valueInput) {
       const isFlexible = criterion.che_do_diem === 'flexible';
       valueInput.required = isFlexible;
       valueInput.disabled = !isFlexible;
       valueInput.closest('label').hidden = !isFlexible;
+      const score = criterionScore(criterion);
+      valueInput.min = score !== null && score > 0 ? '0.01' : '';
+      valueInput.max = score !== null && score > 0 ? String(score) : '';
+      valueInput.max = score !== null && score < 0 ? '-0.01' : valueInput.max;
+      valueInput.min = score !== null && score < 0 ? String(score) : valueInput.min;
+      valueInput.placeholder = score !== null && score > 0
+        ? `Điểm cộng tối đa ${score}`
+        : score !== null && score < 0 ? `Điểm trừ tối thiểu ${score}` : 'Nhập điểm thực tế';
       if (!isFlexible) valueInput.value = '';
     }
-    const target = document.querySelector(`input[name="v029RecordTarget"][value="${criterion.doi_tuong}"]`);
-    if (target) target.checked = true;
+    if ($('v029RecordForm')) $('v029RecordForm').hidden = !cycles.length;
   }
 
   async function loadTargets() {
@@ -263,19 +295,28 @@
     root.replaceChildren();
     const targetType = selectedValue('v029RecordTarget');
     const areaId = $('v029RecordArea')?.value;
-    const allItems = state.criteria.filter(item => item.mang_id === areaId && item.doi_tuong === targetType);
+    const allItems = state.criteria.filter(item => {
+      const score = criterionScore(item);
+      return item.mang_id === areaId &&
+        item.doi_tuong === targetType &&
+        (state.filters.direction === 'positive' ? score > 0 : score < 0);
+    });
     const query = state.filters.criterion.trim().toLocaleLowerCase('vi');
     const items = allItems.filter(item => !query ||
       `${item.ma || ''} ${item.ten || ''}`.toLocaleLowerCase('vi').includes(query));
     const count = $('v029CriterionCount');
     if (count) count.textContent = query ? `${items.length}/${allItems.length} tiêu chí` : `${allItems.length} tiêu chí`;
+    const select = $('v029RecordCriterion');
+    if (select?.value && !allItems.some(item => item.id === select.value)) {
+      select.value = '';
+      syncCriterionHint();
+    }
     for (const criterion of items) {
-      const score = criterion.che_do_diem === 'flexible'
-        ? `±${criterion.diem_gioi_han ?? criterion.diem ?? ''}`
-        : `${criterion.diem_co_dinh ?? criterion.diem ?? ''}`;
+      const score = criterionScore(criterion);
+      const scoreLabel = score === null ? 'chưa cấu hình điểm' : `${score > 0 ? '+' : ''}${score} điểm`;
       const button = make('button', { type: 'button', className: 'outline v029-action-button' }, [
         make('strong', { textContent: criterion.ten }),
-        make('small', { textContent: `${criterion.ma || 'Tiêu chí'} · ${criterion.che_do_diem === 'flexible' ? 'Linh hoạt' : 'Cố định'} · ${score} điểm` }),
+        make('small', { textContent: `${criterion.ma || 'Tiêu chí'} · ${criterion.che_do_diem === 'flexible' ? 'Linh hoạt' : 'Cố định'} · ${scoreLabel}` }),
       ]);
       button.dataset.criterionId = criterion.id;
       button.onclick = () => {
@@ -285,10 +326,11 @@
         $('v029CriterionSearch').value = '';
         syncCriterionHint();
         renderCriteriaActions();
+        renderWorkflow();
       };
       root.append(button);
     }
-    if (!allItems.length) root.append(make('small', { textContent: 'Chưa có tiêu chí phù hợp với đối tượng đang chọn.' }));
+    if (!allItems.length) root.append(make('small', { textContent: `Mảng này chưa có tiêu chí ${state.filters.direction === 'positive' ? 'điểm cộng' : 'điểm trừ'} phù hợp với đối tượng đang chọn.` }));
     else if (!items.length) root.append(make('small', { textContent: 'Không tìm thấy tiêu chí. Hãy thử từ khóa khác.' }));
     const selected = selectedCriterion();
     root.querySelectorAll('button').forEach(button => { button.classList.toggle('selected', button.dataset.criterionId === selected?.id); });
@@ -373,8 +415,8 @@
     const criteriaStep = $('v029CriteriaStep');
     if (targetStep) targetStep.hidden = !targetType;
     if (criteriaStep) criteriaStep.hidden = !hasTarget;
-    $('v029RecordForm').hidden = !hasTarget;
     renderCriteriaActions();
+    $('v029RecordForm').hidden = !hasTarget || !selectedCriterion();
   }
 
   function renderMembers() {
@@ -418,11 +460,15 @@
       return;
     }
     for (const record of state.records) {
-      const score = record.gia_tri_thuc_te === null || record.gia_tri_thuc_te === undefined ? 'điểm cố định' : `giá trị thực tế ${record.gia_tri_thuc_te}`;
+      const scoreValue = record.diem_tai_thoi_diem ?? record.gia_tri_thuc_te;
+      const score = scoreValue === null || scoreValue === undefined ? 'điểm chưa lưu' : `${Number(scoreValue) > 0 ? '+' : ''}${scoreValue} điểm`;
+      const recordedAt = record.ngay_tao
+        ? new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(record.ngay_tao))
+        : 'Không có thời điểm';
       const row = make('article', { className: 'v029-entry' }, [
-        make('strong', { textContent: `${record.ma_tieu_chi || ''} · ${record.ten_tieu_chi || ''}` }),
-        make('small', { textContent: `${record.ma_mang || ''} · ${record.doi_tuong === 'student' ? 'cá nhân' : 'tập thể/lớp'} ${record.doi_tuong_ma} · ${record.chu_ky} · ${record.ngay_ghi_nhan} · ${score}` }),
-        make('small', { textContent: `${record.noi_dung || 'Không có nội dung'} · trạng thái ${record.trang_thai}` }),
+        make('strong', { textContent: `${record.ma_tieu_chi_tai_thoi_diem || record.ma_tieu_chi || ''} · ${record.ten_tieu_chi_tai_thoi_diem || record.ten_tieu_chi || ''} · ${score}` }),
+        make('small', { textContent: `${record.ma_mang_tai_thoi_diem || record.ma_mang || ''} · ${record.doi_tuong === 'student' ? 'cá nhân' : 'tập thể/lớp'} ${record.doi_tuong_ma} · ghi nhận lúc ${recordedAt}` }),
+        make('small', { textContent: `Tài khoản: ${record.nguoi_ghi_nhan_email || record.nguoi_ghi_nhan_id || 'không xác định'} · ${record.noi_dung || 'Không có ghi chú'} · trạng thái ${record.trang_thai}` }),
       ]);
       if (record.trang_thai === 'recorded') {
         const actions = make('div', { className: 'v029-entry-actions' });
@@ -503,7 +549,7 @@
     scoringCard.onkeydown = event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showPanel(); } };
     document.querySelector('.dashboard-modules')?.append(scoringCard);
     panel = make('section', { id: 'b43-scoring', className: 'b43page panel', hidden: true });
-    panel.innerHTML = `<h2>Ghi nhận thi đua V0.2.9</h2><p>Nhập dữ liệu và minh chứng theo phân công. Màn hình này chưa tính điểm tổng hợp, chưa chạy công thức và chưa xếp hạng.</p><p id="v029ScoringNotice" role="status"></p><div class="v029-workflow"><section class="v029-step"><h3>1. Chọn khối</h3><div id="v029GradeButtons" class="v029-choice-grid"></div></section><section class="v029-step"><h3>2. Chọn lớp</h3><input id="v029ClassSearch" placeholder="Tìm nhanh lớp..." autocomplete="off"><div id="v029ClassButtons" class="v029-choice-grid"></div></section><section class="v029-step"><h3>3. Chọn hình thức chấm</h3><div class="v029-mode-grid"><button id="v029ModeStudent" type="button" class="outline v029-mode-button">Chấm điểm cá nhân</button><button id="v029ModeClass" type="button" class="outline v029-mode-button">Chấm điểm tập thể</button></div></section><section class="v029-step"><h3>4. Chọn lệnh ghi nhận</h3><div class="v029-scan-row"><button id="v029ScanQr" type="button" class="outline">⌁ Quét QR học sinh</button><video id="v029QrVideo" playsinline hidden></video></div><div id="v029CriteriaActions" class="v029-action-grid"></div></section></div><div class="v029-scoring-grid"><section class="v029-card"><h3>Phân công người ghi nhận</h3><p class="v029-help">Chỉ quản trị trường được tạo phân công. Người ghi nhận chỉ nhập trong phạm vi còn hiệu lực.</p><form id="v029AssignmentForm"><label>Người ghi nhận<select id="v029AssignmentMember" required></select></label><label>Mảng thi đua<select id="v029AssignmentArea" required></select></label><fieldset><legend>Đối tượng</legend><label><input type="radio" name="v029AssignmentTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029AssignmentTarget" value="class"> Tập thể / lớp</label></fieldset><label>Phạm vi mã đối tượng (tùy chọn)<input id="v029AssignmentScope" maxlength="120" placeholder="Ví dụ: 10C1 hoặc để trống cho toàn mảng"></label><div class="v029-inline-fields"><label>Từ ngày<input id="v029AssignmentFrom" type="date"></label><label>Đến ngày<input id="v029AssignmentTo" type="date"></label></div><label>Ghi chú<textarea id="v029AssignmentNote" maxlength="1000" rows="2"></textarea></label><button type="submit">＋ Tạo phân công</button></form><div id="v029AssignmentList" class="v029-scroll-list"></div></section><section class="v029-card"><h3>Tạo bản ghi ghi nhận</h3><form id="v029RecordForm"><label>Mảng thi đua<select id="v029RecordArea" required></select></label><label>Tiêu chí<select id="v029RecordCriterion" required></select></label><p id="v029CriterionHint" class="v029-hint"></p><fieldset><legend>Đối tượng được ghi nhận</legend><label><input type="radio" name="v029RecordTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029RecordTarget" value="class"> Tập thể / lớp</label></fieldset><label>Đối tượng được chọn<select id="v029RecordTargetSelect" required></select></label><label id="v029RecordTargetManualLabel" hidden>Nhập mã đối tượng<input id="v029RecordTargetManual" maxlength="120" placeholder="Mã hồ sơ học sinh hoặc mã lớp"></label><p id="v029RecordTargetHint" class="v029-hint"></p><div class="v029-inline-fields"><label>Chu kỳ<select id="v029RecordCycle" required><option value="week">Tuần</option><option value="month">Tháng</option><option value="semester">Học kỳ</option><option value="year">Năm học</option></select></label><label>Ngày ghi nhận<input id="v029RecordDate" type="date" required></label></div><label>Giá trị thực tế (chỉ dùng cho điểm linh hoạt)<input id="v029RecordValue" type="number" step="0.01" placeholder="Để trống nếu tiêu chí cố định"></label><label>Nội dung ghi nhận<textarea id="v029RecordContent" maxlength="2000" rows="3"></textarea></label><label>Minh chứng (mỗi dòng một URL hoặc mã tài liệu)<textarea id="v029RecordEvidence" rows="2"></textarea></label><label>Mã tham chiếu (tùy chọn)<input id="v029RecordReference" maxlength="120"></label><button type="submit">＋ Lưu bản ghi</button></form><div id="v029RecordList" class="v029-scroll-list"></div></section></div>`;
+    panel.innerHTML = `<h2>Ghi nhận thi đua V0.2.9</h2><p>Chọn đối tượng và điểm phù hợp theo mảng thi đua; mỗi lần lưu được ghi lịch sử cùng thời điểm và tài khoản thực hiện.</p><p id="v029ScoringNotice" role="status"></p><div class="v029-workflow"><section class="v029-step"><h3>1. Chọn khối</h3><div id="v029GradeButtons" class="v029-choice-grid"></div></section><section class="v029-step"><h3>2. Chọn lớp</h3><input id="v029ClassSearch" placeholder="Tìm nhanh lớp..." autocomplete="off"><div id="v029ClassButtons" class="v029-choice-grid"></div></section><section class="v029-step"><h3>3. Chọn hình thức chấm</h3><div class="v029-mode-grid"><button id="v029ModeStudent" type="button" class="outline v029-mode-button">Cá nhân</button><button id="v029ModeClass" type="button" class="outline v029-mode-button">Tập thể / lớp</button></div></section><section class="v029-step"><h3>4. Chọn lệnh ghi nhận</h3><div class="v029-scan-row"><button id="v029ScanQr" type="button" class="outline">⌁ Quét QR học sinh</button><video id="v029QrVideo" playsinline hidden></video></div><div id="v029CriteriaActions" class="v029-action-grid"></div></section></div><div class="v029-scoring-grid"><section class="v029-card"><h3>Phân công người ghi nhận</h3><p class="v029-help">Chỉ quản trị trường được tạo phân công. Người ghi nhận chỉ nhập trong phạm vi còn hiệu lực.</p><form id="v029AssignmentForm"><label>Người ghi nhận<select id="v029AssignmentMember" required></select></label><label>Mảng thi đua<select id="v029AssignmentArea" required></select></label><fieldset><legend>Đối tượng</legend><label><input type="radio" name="v029AssignmentTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029AssignmentTarget" value="class"> Tập thể / lớp</label></fieldset><label>Phạm vi mã đối tượng (tùy chọn)<input id="v029AssignmentScope" maxlength="120" placeholder="Ví dụ: 10C1 hoặc để trống cho toàn mảng"></label><div class="v029-inline-fields"><label>Từ ngày<input id="v029AssignmentFrom" type="date"></label><label>Đến ngày<input id="v029AssignmentTo" type="date"></label></div><label>Ghi chú<textarea id="v029AssignmentNote" maxlength="1000" rows="2"></textarea></label><button type="submit">＋ Tạo phân công</button></form><div id="v029AssignmentList" class="v029-scroll-list"></div></section><section class="v029-card"><h3>Lịch sử ghi nhận</h3><div id="v029RecordList" class="v029-scroll-list"></div></section><section class="v029-card"><h3>Ghi nhận được chọn</h3><form id="v029RecordForm"><label>Mảng thi đua<select id="v029RecordArea" required></select></label><label>Tiêu chí<select id="v029RecordCriterion" required></select></label><p id="v029CriterionHint" class="v029-hint"></p><fieldset><legend>Đối tượng được ghi nhận</legend><label><input type="radio" name="v029RecordTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029RecordTarget" value="class"> Tập thể / lớp</label></fieldset><label>Đối tượng được chọn<select id="v029RecordTargetSelect" required></select></label><label id="v029RecordTargetManualLabel" hidden>Nhập mã đối tượng<input id="v029RecordTargetManual" maxlength="120" placeholder="Mã hồ sơ học sinh hoặc mã lớp"></label><p id="v029RecordTargetHint" class="v029-hint"></p><div class="v029-inline-fields"><label>Chu kỳ<select id="v029RecordCycle" required><option value="week">Tuần</option><option value="month">Tháng</option><option value="semester">Học kỳ</option><option value="year">Năm học</option></select></label><label>Ngày ghi nhận<input id="v029RecordDate" type="date" required></label></div><label>Giá trị thực tế (chỉ dùng cho điểm linh hoạt)<input id="v029RecordValue" type="number" step="0.01" placeholder="Để trống nếu tiêu chí cố định"></label><label>Nội dung ghi nhận<textarea id="v029RecordContent" maxlength="2000" rows="3"></textarea></label><label>Minh chứng (mỗi dòng một URL hoặc mã tài liệu)<textarea id="v029RecordEvidence" rows="2"></textarea></label><label>Mã tham chiếu (tùy chọn)<input id="v029RecordReference" maxlength="120"></label><button type="submit">Lưu ghi nhận</button></form></section></div>`;
     host.append(panel);
     panel.querySelector('h2').classList.add('v029-page-title');
     const workflowSteps = panel.querySelectorAll('.v029-workflow .v029-step');
@@ -515,6 +561,7 @@
     targetStep.append(make('h3', { textContent: '4. Chọn học sinh hoặc lớp' }));
     const targetMode = $('v029RecordForm').querySelector('fieldset');
     targetMode.hidden = true;
+    modeStep.append(targetMode);
     const targetSearch = make('input', { id: 'v029StudentSearch', type: 'search', placeholder: 'Nhập tên, chữ cái đầu (ví dụ: ttm) hoặc mã định danh...', autocomplete: 'off' });
     const studentSearchLabel = make('label', { id: 'v029StudentSearchLabel', className: 'v029-search-label', textContent: 'Tìm học sinh' }, [targetSearch]);
     targetStep.append(make('p', { className: 'v029-step-help', textContent: 'Có thể tìm theo tên đầy đủ, chữ cái đầu của họ tên (ví dụ: Trần Tuấn Minh → ttm) hoặc mã định danh.' }));
@@ -530,7 +577,7 @@
     gradeStep.querySelector('h3').textContent = '2. Chọn khối';
     classStep.querySelector('h3').textContent = '3. Chọn lớp';
     criteriaStep.id = 'v029CriteriaStep';
-    criteriaStep.querySelector('h3').textContent = '5. Chọn hình thức ghi nhận';
+    criteriaStep.querySelector('h3').textContent = '5. Chọn điểm cộng hoặc điểm trừ';
     panel.querySelector('.v029-workflow').replaceChildren(modeStep, gradeStep, classStep, targetStep, criteriaStep);
     criteriaStep.hidden = true;
     $('v029RecordForm').hidden = true;
@@ -540,6 +587,11 @@
     areaLabel.classList.add('v029-area-select');
     criterionLabel.hidden = true;
     $('v029RecordCriterion').required = false;
+    const directionButtons = make('div', { className: 'v029-direction-buttons', role: 'group', 'aria-label': 'Lọc loại điểm' }, [
+      make('button', { id: 'v029PositivePoints', type: 'button', className: 'outline v029-direction-button selected', textContent: '＋ Điểm cộng', 'aria-pressed': 'true' }),
+      make('button', { id: 'v029NegativePoints', type: 'button', className: 'outline v029-direction-button', textContent: '− Điểm trừ', 'aria-pressed': 'false' }),
+    ]);
+    criteriaStep.insertBefore(directionButtons, criteriaStep.querySelector('.v029-scan-row'));
     const criterionSearch = make('input', { id: 'v029CriterionSearch', type: 'search', placeholder: 'Tìm tiêu chí theo tên hoặc mã...', autocomplete: 'off', 'aria-label': 'Tìm tiêu chí' });
     const criterionToolbar = make('div', { className: 'v029-filter-toolbar' }, [
       criterionSearch,
@@ -547,13 +599,25 @@
     ]);
     criteriaStep.insertBefore(criterionToolbar, criteriaStep.querySelector('.v029-scan-row'));
     studentSearchLabel.hidden = true;
+    const recordForm = $('v029RecordForm');
+    const cycleLabel = $('v029RecordCycle').closest('label');
+    const valueLabel = $('v029RecordValue').closest('label');
+    const noteLabel = $('v029RecordContent').closest('label');
+    criteriaStep.append(criterionLabel);
+    noteLabel.firstChild.textContent = 'Ghi chú (không bắt buộc)';
+    $('v029RecordDate').closest('label').remove();
+    $('v029RecordEvidence').closest('label').remove();
+    $('v029RecordReference').closest('label').remove();
+    const submitButton = recordForm.querySelector('button[type="submit"]');
+    submitButton.textContent = 'Lưu ghi nhận';
+    submitButton.classList.add('v029-wide-field');
+    recordForm.replaceChildren(cycleLabel, valueLabel, noteLabel, submitButton);
     $('v029CriterionHint').classList.add('v029-wide-field');
-    $('v029RecordContent').closest('label').classList.add('v029-wide-field');
-    $('v029RecordEvidence').closest('label').classList.add('v029-wide-field');
-    $('v029RecordForm').querySelector('button[type="submit"]').classList.add('v029-wide-field');
+    criteriaStep.append($('v029CriterionHint'), recordForm);
     const scoringGrid = panel.querySelector('.v029-scoring-grid');
     const assignmentCard = scoringGrid.children[0];
     const recordCard = scoringGrid.children[1];
+    const captureCard = scoringGrid.children[2];
     const assignmentHelp = assignmentCard.querySelector('.v029-help');
     const assignmentForm = $('v029AssignmentForm');
     const assignmentList = $('v029AssignmentList');
@@ -563,13 +627,10 @@
     assignmentDetails.append(assignmentContent);
     assignmentCard.replaceChildren(assignmentDetails);
     const recordList = $('v029RecordList');
-    const recordHistory = make('details', { className: 'v029-history-details' }, [
-      make('summary', { textContent: 'Lịch sử ghi nhận' }),
-      recordList,
-    ]);
-    recordCard.append(recordHistory);
+    recordCard.querySelector('h3').textContent = 'Lịch sử ghi nhận';
+    recordCard.append(recordList);
+    captureCard.remove();
     scoringGrid.append(recordCard, assignmentCard);
-    $('v029RecordDate').value = new Date().toISOString().slice(0, 10);
     $('v029AssignmentFrom').value = new Date().toISOString().slice(0, 10);
     tabButton.onclick = showPanel;
     document.querySelectorAll('[data-b43-tab]').forEach(button => button.addEventListener('click', () => { if (button !== tabButton) panel.hidden = true; }));
@@ -586,6 +647,22 @@
     };
     $('v029RecordCriterion').onchange = syncCriterionHint;
     $('v029CriterionSearch').oninput = event => { state.filters.criterion = event.target.value; renderCriteriaActions(); };
+    const setPointDirection = direction => {
+      state.filters.direction = direction;
+      $('v029RecordCriterion').value = '';
+      $('v029CriterionSearch').value = '';
+      state.filters.criterion = '';
+      for (const [id, value] of [['v029PositivePoints', 'positive'], ['v029NegativePoints', 'negative']]) {
+        const selected = value === direction;
+        $(id).classList.toggle('selected', selected);
+        $(id).setAttribute('aria-pressed', String(selected));
+      }
+      syncCriterionHint();
+      renderCriteriaActions();
+      renderWorkflow();
+    };
+    $('v029PositivePoints').onclick = () => setPointDirection('positive');
+    $('v029NegativePoints').onclick = () => setPointDirection('negative');
     $('v029StudentSearch').oninput = event => { state.filters.student = event.target.value; $('v029RecordTargetSelect').value = ''; renderWorkflow(); };
     $('v029RecordTargetManual').oninput = renderWorkflow;
     document.querySelectorAll('input[name="v029RecordTarget"]').forEach(input => { input.addEventListener('change', () => {
@@ -630,7 +707,16 @@
       if (!criterion) { setNotice('Hãy chọn tiêu chí.', true); return; }
       const target = selectedValue('v029RecordTarget');
       if (criterion.doi_tuong !== target) { setNotice('Đối tượng ghi nhận không khớp với tiêu chí.', true); return; }
-      const evidence = $('v029RecordEvidence').value.split(/\r?\n/).map(value => value.trim()).filter(Boolean).map(ref => ({ ref }));
+      const score = criterionScore(criterion);
+      const actualScore = criterion.che_do_diem === 'flexible' ? Number($('v029RecordValue').value) : score;
+      if (actualScore === null || !Number.isFinite(actualScore) ||
+          (state.filters.direction === 'positive' && actualScore <= 0) ||
+          (state.filters.direction === 'negative' && actualScore >= 0)) {
+        setNotice('Điểm ghi nhận không phù hợp với mục cộng/trừ đang chọn.', true);
+        return;
+      }
+      const submitButton = $('v029RecordForm').querySelector('button[type="submit"]');
+      submitButton.disabled = true;
       try {
         await schoolApi('ghi_nhan_create', {
           mang_id: $('v029RecordArea').value,
@@ -638,23 +724,20 @@
           doi_tuong: target,
           doi_tuong_ma: targetCode(),
           chu_ky: $('v029RecordCycle').value,
-          ngay_ghi_nhan: $('v029RecordDate').value,
           gia_tri_thuc_te: criterion.che_do_diem === 'flexible' ? $('v029RecordValue').value : '',
           noi_dung: $('v029RecordContent').value.trim(),
-          minh_chung: evidence,
-          ma_tham_chieu: $('v029RecordReference').value.trim(),
         });
         const areaId = $('v029RecordArea').value;
         const targetType = selectedValue('v029RecordTarget');
         event.target.reset();
         $('v029RecordArea').value = areaId;
         document.querySelector(`input[name="v029RecordTarget"][value="${targetType}"]`).checked = true;
-        $('v029RecordDate').value = new Date().toISOString().slice(0, 10);
         renderAreaOptions();
         renderWorkflow();
         await loadRecords();
-        setNotice('Đã lưu bản ghi ghi nhận. Chưa tính điểm tổng hợp.');
+        setNotice('Đã lưu ghi nhận. Điểm và thông tin tại thời điểm lưu đã được đưa vào lịch sử.');
       } catch (error) { setNotice(error.message, true); }
+      finally { submitButton.disabled = false; }
     };
   }
 
