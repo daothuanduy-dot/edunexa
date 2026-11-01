@@ -307,9 +307,21 @@
     for(const page of document.querySelectorAll('#b43 > .b43page'))page.hidden=true;
     $('v024Panel').hidden=true;
     const scoring=$('b43-scoring');if(scoring)scoring.hidden=true;
-    const selectedPage=$('b43-'+tab);if(selectedPage)selectedPage.hidden=false;
+    const overviewTabs=['overview','years','classes','settings'];
+    const overviewActive=overviewTabs.includes(tab);
+    const selectedPage=$('b43-'+(overviewActive?'overview':tab));if(selectedPage)selectedPage.hidden=false;
+    if(overviewActive){
+      for(const page of document.querySelectorAll('#b43-overview > .b43-subpage'))page.hidden=true;
+      const selectedOverviewPage=tab==='overview' ? $('b43-overview-home') : $(`b43-${tab}`);
+      if(selectedOverviewPage)selectedOverviewPage.hidden=false;
+    }
     for(const b of document.querySelectorAll('[data-b43-tab]')){
-      const selected=b.dataset.b43Tab===tab;
+      const selected=b.dataset.b43Tab===(overviewActive?'overview':tab);
+      b.classList.toggle('selected',selected);
+      b.setAttribute('aria-selected',String(selected));
+    }
+    for(const b of document.querySelectorAll('[data-b43-overview-tab]')){
+      const selected=b.dataset.b43OverviewTab===tab;
       b.classList.toggle('selected',selected);
       b.setAttribute('aria-selected',String(selected));
     }
@@ -318,8 +330,224 @@
     if(tab==='members')b44Members();
     if(tab==='profiles'){v023ApplyPermissions();v023Load();}
   }
-  // B4.4: read-only, school-scoped membership listing. No new auth client or write path.
+  function initializeOverviewSubTabs(){
+    const overview=$('b43-overview');
+    const dashboard=document.createElement('div');
+    dashboard.id='b43-overview-home';
+    dashboard.className='b43-subpage';
+    while(overview.firstChild)dashboard.append(overview.firstChild);
+    const tabs=document.createElement('nav');
+    tabs.className='b43tabs b43-subtabs';
+    tabs.setAttribute('aria-label','Cấu hình trường');
+    for(const [key,label] of [['overview','Tổng quan'],['years','Năm học'],['classes','Khối và lớp'],['settings','Cấu hình trường']]){
+      const button=document.createElement('button');
+      button.type='button';
+      button.className='outline';
+      button.dataset.b43OverviewTab=key;
+      button.setAttribute('aria-selected',String(key==='overview'));
+      button.textContent=label;
+      button.onclick=()=>b43Open(key);
+      tabs.append(button);
+    }
+    overview.append(tabs,dashboard);
+    for(const key of ['years','classes','settings']){
+      const page=$('b43-'+key);
+      page.classList.remove('b43page');
+      page.classList.add('b43-subpage');
+      overview.append(page);
+    }
+  }
+  function initializeMemberSubTabs(){
+    const root=$('b43-members');
+    const accountPanel=$('teacherAccessPanel');
+    const memberList=$('b44MemberList');
+    if(!root||!accountPanel||!memberList)return;
+    const nav=document.createElement('nav');
+    nav.className='b43tabs b44-tabs';
+    nav.setAttribute('aria-label','Quản lý người dùng');
+    const accountTab=document.createElement('button');
+    accountTab.type='button';
+    accountTab.className='outline selected';
+    accountTab.dataset.b44Pane='accounts';
+    accountTab.setAttribute('aria-selected','true');
+    accountTab.textContent='Tài khoản và phân quyền';
+    const membersTab=document.createElement('button');
+    membersTab.type='button';
+    membersTab.className='outline';
+    membersTab.dataset.b44Pane='members';
+    membersTab.setAttribute('aria-selected','false');
+    membersTab.textContent='Thành viên trường';
+    nav.append(accountTab,membersTab);
+    const accountPane=document.createElement('section');
+    accountPane.className='b44-pane';
+    accountPane.dataset.b44Panel='accounts';
+    const membersPane=document.createElement('section');
+    membersPane.className='b44-pane';
+    membersPane.dataset.b44Panel='members';
+    membersPane.hidden=true;
+    root.insertBefore(nav,accountPanel);
+    accountPane.append(accountPanel);
+    for(const id of ['b44Reload','b44Notice','b44MemberList']){
+      const element=$(id);
+      if(element){element.hidden=false;membersPane.append(element);}
+    }
+    root.append(accountPane,membersPane);
+    for(const button of nav.querySelectorAll('[data-b44-pane]')){
+      button.onclick=()=>{
+        const key=button.dataset.b44Pane;
+        for(const tab of nav.querySelectorAll('[data-b44-pane]')){
+          const selected=tab===button;
+          tab.classList.toggle('selected',selected);
+          tab.setAttribute('aria-selected',String(selected));
+        }
+        for(const pane of root.querySelectorAll('[data-b44-panel]'))pane.hidden=pane.dataset.b44Panel!==key;
+      };
+    }
+  }
+  initializeOverviewSubTabs();
+  initializeMemberSubTabs();
+  // V0.3.1: school-scoped member listing and administrator-managed workflow access.
   let b44Request=0;
+  const workflowFeatureLabels={
+    student_directory:'Danh sách học sinh theo lớp',
+    student_password_reset:'Đặt lại mật khẩu học sinh',
+    guardian_password_reset:'Đặt lại mật khẩu phụ huynh',
+    absence_approval:'Duyệt xin nghỉ / đi muộn',
+    attendance_report_absence:'Báo vắng',
+    attendance_report_late:'Báo đi muộn',
+    red_flag_tardiness:'Cờ đỏ báo đi muộn',
+    gradebook_entry:'Nhập điểm học sinh trong lớp',
+    lesson_book_update:'Cập nhật sổ đầu bài'
+  };
+  const workflowRoleLabels={
+    teacher:'Giáo viên',
+    homeroom_teacher:'Giáo viên chủ nhiệm',
+    subject_teacher:'Giáo viên bộ môn',
+    duty_teacher:'Giáo viên trực',
+    office_admin:'Văn phòng - hành chính',
+    security:'Bảo vệ',
+    class_officer:'Cán bộ lớp',
+    red_flag:'Cờ đỏ'
+  };
+  async function loadMemberWorkflowAccess(schoolId,serial){
+    const [members,features,classData]=await Promise.all([
+      call('member_access_list',{truong_id:schoolId}),
+      call('school_features_list',{truong_id:schoolId}),
+      call('teacher_access_classes',{truong_id:schoolId})
+    ]);
+    if(!Array.isArray(members)||!Array.isArray(features)||!Array.isArray(classData?.lop_hoc))
+      throw Error('Dữ liệu vai trò hoặc quyền chức năng không hợp lệ');
+    const featureCodes=Object.keys(workflowFeatureLabels);
+    if(features.length!==featureCodes.length||
+      new Set(features.map(item=>item.ma_tinh_nang)).size!==featureCodes.length||
+      features.some(item=>
+      !featureCodes.includes(item.ma_tinh_nang)||typeof item.bat!=='boolean'
+    ))throw Error('Danh sách tính năng trường chưa đầy đủ hoặc sai định dạng');
+    if(members.some(member=>
+      typeof member.thanh_vien_id!=='string'||
+      !Array.isArray(member.vai_tro)||
+      !member.quyen||typeof member.quyen!=='object'||Array.isArray(member.quyen)||
+      !Array.isArray(member.lop_hoc)
+    ))throw Error('Danh sách vai trò thành viên sai định dạng');
+    if(serial!==b44Request||!b43School||b43School.id!==schoolId)return;
+
+    const featureState=new Map(features.map(item=>[item.ma_tinh_nang,item.bat===true]));
+    const schoolFeatures=$('schoolWorkflowFeatures');
+    schoolFeatures.replaceChildren();
+    for(const [code,labelText] of Object.entries(workflowFeatureLabels)){
+      const label=document.createElement('label');
+      const checkbox=document.createElement('input');
+      checkbox.type='checkbox';checkbox.dataset.schoolFeature=code;
+      checkbox.checked=featureState.get(code)===true;
+      label.append(checkbox,document.createTextNode(` ${labelText}`));
+      schoolFeatures.append(label);
+    }
+    $('saveSchoolWorkflowFeatures').onclick=async()=>{
+      const button=$('saveSchoolWorkflowFeatures');button.disabled=true;
+      try{
+        const values=Object.fromEntries(
+          [...schoolFeatures.querySelectorAll('[data-school-feature]')]
+            .map(input=>[input.dataset.schoolFeature,input.checked])
+        );
+        await call('school_features_update',{truong_id:schoolId,du_lieu:{features:values}});
+        $('workflowAccessNotice').textContent='Đã cập nhật các tính năng khả dụng của trường.';
+      }catch(error){$('workflowAccessNotice').textContent='Không cập nhật được tính năng trường: '+error.message}
+      finally{button.disabled=false}
+    };
+
+    const root=$('workflowMemberAccessList');root.replaceChildren();
+    for(const member of members){
+      const card=document.createElement('article');card.className='b43entry teacher-access-entry';
+      const heading=document.createElement('strong');
+      heading.textContent=member.email||member.nguoi_dung_id;
+      const status=document.createElement('small');
+      status.textContent=`Trạng thái: ${member.trang_thai}`;
+      const controls=document.createElement('div');controls.className='teacher-access-controls';
+      const roleChecks=[];
+      const roleFieldset=document.createElement('fieldset');
+      const roleLegend=document.createElement('legend');roleLegend.textContent='Vai trò';
+      roleFieldset.append(roleLegend);
+      for(const [code,labelText] of Object.entries(workflowRoleLabels)){
+        const label=document.createElement('label');
+        const checkbox=document.createElement('input');
+        checkbox.type='checkbox';checkbox.value=code;
+        checkbox.checked=(member.vai_tro||[]).includes(code);
+        checkbox.disabled=member.trang_thai!=='active';
+        roleChecks.push(checkbox);
+        label.append(checkbox,document.createTextNode(` ${labelText}`));
+        roleFieldset.append(label);
+      }
+      const classFieldset=document.createElement('fieldset');
+      const classLegend=document.createElement('legend');classLegend.textContent='Lớp phụ trách · năm học hiện hành';
+      const classSelect=document.createElement('select');
+      classSelect.multiple=true;classSelect.size=Math.min(5,Math.max(classData.lop_hoc.length,2));
+      classSelect.setAttribute('aria-label',`Lớp phụ trách cho ${heading.textContent}`);
+      classSelect.disabled=member.trang_thai!=='active'||!classData.nam_hoc_id;
+      for(const item of classData.lop_hoc){
+        const option=new Option(`${item.ten_lop}${item.khoi?` · Khối ${item.khoi}`:''}`,item.id);
+        option.selected=(member.lop_hoc||[]).some(assigned=>assigned.id===item.id);
+        classSelect.append(option);
+      }
+      classFieldset.append(classLegend,classSelect);
+      const permissionFieldset=document.createElement('fieldset');
+      const permissionLegend=document.createElement('legend');permissionLegend.textContent='Quyền riêng của thành viên';
+      permissionFieldset.append(permissionLegend);
+      const permissionChecks=[];
+      for(const [code,labelText] of Object.entries(workflowFeatureLabels)){
+        const label=document.createElement('label');
+        const checkbox=document.createElement('input');
+        checkbox.type='checkbox';checkbox.value=code;
+        checkbox.checked=member.quyen?.[code]===true;
+        checkbox.disabled=member.trang_thai!=='active';
+        permissionChecks.push(checkbox);
+        label.append(checkbox,document.createTextNode(` ${labelText}`));
+        permissionFieldset.append(label);
+      }
+      const save=document.createElement('button');save.type='button';save.textContent='Lưu vai trò và quyền';
+      save.disabled=member.trang_thai!=='active'||!classData.nam_hoc_id;
+      save.onclick=async()=>{
+        save.disabled=true;
+        try{
+          const permissions=Object.fromEntries(permissionChecks.map(input=>[input.value,input.checked]));
+          await call('member_access_update',{truong_id:schoolId,du_lieu:{
+            thanh_vien_id:member.thanh_vien_id,
+            roles:roleChecks.filter(input=>input.checked).map(input=>input.value),
+            class_ids:[...classSelect.selectedOptions].map(option=>option.value),
+            permissions
+          }});
+          await b44Members();
+          $('workflowAccessNotice').textContent=`Đã cập nhật quyền cho ${heading.textContent}.`;
+        }catch(error){$('workflowAccessNotice').textContent=`Không cập nhật được quyền cho ${heading.textContent}: ${error.message}`}
+        finally{save.disabled=member.trang_thai!=='active'||!classData.nam_hoc_id}
+      };
+      controls.append(roleFieldset,classFieldset,permissionFieldset,save);
+      card.append(heading,status,controls);root.append(card);
+    }
+    if(!members.length)root.textContent='Chưa có thành viên trong trường.';
+    $('workflowAccessNotice').textContent=classData.nam_hoc_id
+      ? `Đang quản lý ${members.length} thành viên · ${classData.lop_hoc.length} lớp của năm học hiện hành.`
+      : 'Chưa cấu hình năm học hiện hành; chưa thể gán phạm vi lớp.';
+  }
   async function b44Members(){
     const serial=++b44Request,root=$('b44MemberList');root.replaceChildren();
     $('b44Notice').textContent='Đang tải thành viên...';
@@ -494,6 +722,10 @@
       };
       $('b44Notice').textContent=`Đã tải ${members.length} thành viên (tối đa 500).`;
       if(!members.length)root.textContent='Trường chưa có thành viên.';
+      try{await loadMemberWorkflowAccess(schoolId,serial)}
+      catch(error){
+        if(serial===b44Request)$('workflowAccessNotice').textContent='Không tải được vai trò và quyền chức năng: '+error.message;
+      }
     }catch(e){if(serial===b44Request)$('b44Notice').textContent='Không tải được: '+e.message;}
   }
   $('b44Reload').onclick=b44Members;
