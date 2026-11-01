@@ -162,6 +162,7 @@
   async function b43Load(){if(!b43School)return;const serial=++b43Serial;b43notice('Đang tải dữ liệu...');try{const data=await b43api('tong_quan');if(serial!==b43Serial)return;b43Data=data;b43Render();b43notice('Dữ liệu đã đồng bộ');loadSchoolDashboard(b43School)}catch(e){if(serial===b43Serial)b43notice('Lỗi tải dữ liệu: '+e.message,true)}}
   async function b43Mutate(action,data,confirmation){if(confirmation&&!confirm(confirmation))return;try{b43notice('Đang lưu...');await b43api(action,data);await b43Load();b43notice('Đã lưu thành công');return true}catch(e){b43notice(e.message,true);return false}}
   async function b43Logs(){const root=$('b43LogList');root.textContent='Đang tải...';try{const logs=await b43api('nhat_ky');root.replaceChildren();for(const log of logs){const row=b43Node('div','');row.className='b43entry';const date=new Date(log.ngay_tao).toLocaleString('vi-VN');row.append(b43Node('span',`${date} · ${log.hanh_dong} · ${log.doi_tuong}`));root.append(row)}if(!logs.length)root.textContent='Chưa có nhật ký B4.3.'}catch(e){root.textContent=e.message}}
+  let v023Mode=()=>{};
   const profileBox = document.querySelector('.v023box');
   const profileButton = $('b43OpenProfiles');
   if (profileBox) {
@@ -178,9 +179,17 @@
     importProfiles.className = 'outline';
     profileTools.append(manageProfiles, importProfiles);
     profilesPage.append(b43Node('h2', 'Quản lý học sinh'), b43Node('p', 'Thêm hồ sơ từng học sinh hoặc nhập danh sách Excel để dùng trong ghi nhận thi đua.'), profileTools, profileBox);
-    manageProfiles.onclick = () => $('v023Code')?.focus();
-    importProfiles.onclick = () => $('v023Excel')?.focus();
     $('b43').append(profilesPage);
+    const showProfileMode = mode => {
+      $('v023ManualSection').hidden = mode !== 'manual';
+      $('v023ImportSection').hidden = mode !== 'import';
+      manageProfiles.classList.toggle('selected', mode === 'manual');
+      importProfiles.classList.toggle('selected', mode === 'import');
+    };
+    v023Mode=showProfileMode;
+    manageProfiles.onclick = () => { showProfileMode('manual'); $('v023Code')?.focus(); };
+    importProfiles.onclick = () => { showProfileMode('import'); $('v023Excel')?.focus(); };
+    showProfileMode('manual');
     profileBox.hidden = false;
     profileButton?.remove();
     const profileTab = document.createElement('button');
@@ -196,7 +205,7 @@
     profileCard.append(b43Node('strong', 'Quản lý học sinh'), b43Node('small', 'Nhập hồ sơ và danh sách Excel'), b43Node('span', 'Mở danh sách'));
     document.querySelector('.dashboard-modules')?.append(profileCard);
   }
-  function b43Open(tab){for(const x of ['years','classes','settings','logs','overview','members','profiles'])$('b43-'+x).hidden=x!==tab;for(const b of document.querySelectorAll('[data-b43-tab]'))b.classList.toggle('selected',b.dataset.b43Tab===tab);if(tab==='logs')b43Logs();if(tab==='members')b44Members()}
+  function b43Open(tab){for(const x of ['years','classes','settings','logs','overview','members','profiles'])$('b43-'+x).hidden=x!==tab;const scoring=$('b43-scoring');if(scoring)scoring.hidden=true;for(const b of document.querySelectorAll('[data-b43-tab]'))b.classList.toggle('selected',b.dataset.b43Tab===tab);if(tab==='logs')b43Logs();if(tab==='members')b44Members();if(tab==='profiles')v023Load()}
   // B4.4: read-only, school-scoped membership listing. No new auth client or write path.
   let b44Request=0;
   async function b44Members(){
@@ -219,7 +228,7 @@
     }catch(e){if(serial===b44Request)$('b44Notice').textContent='Không tải được: '+e.message;}
   }
   $('b44Reload').onclick=b44Members;
-  for(const b of document.querySelectorAll('[data-b43-tab]'))b.onclick=()=>b43Open(b.dataset.b43Tab);
+  for(const b of document.querySelectorAll('[data-b43-tab]'))if(b.dataset.b43Tab!=='scoring')b.onclick=()=>b43Open(b.dataset.b43Tab);
   // Dashboard cards are shortcuts to the existing B4.3/B4.4 tab handlers.
   for(const card of document.querySelectorAll('[data-open-tab]')){
     const open=()=>{if(!b43School)return;const tab=card.dataset.openTab;b43Open(tab);card.closest('#school')?.querySelector('#b43')?.scrollIntoView({block:'start',behavior:'smooth'});};
@@ -255,16 +264,34 @@
     }
     return total;
   };
+  let v023Rows=[];
+  function v023ResetEdit(){ $('v023Form').reset();$('v023Id').value='';$('v023Updated').value='';$('v023Code').readOnly=false;$('v023Type').disabled=false;$('v023Submit').textContent='＋ Lưu hồ sơ';$('v023CancelEdit').hidden=true; }
+  $('v023CancelEdit').onclick=v023ResetEdit;
   $('v023Form').onsubmit=async e=>{e.preventDefault();
     const item={loai:$('v023Type').value,ma_dinh_danh:$('v023Code').value.trim(),ho_ten:$('v023Name').value.trim(),ngay_sinh:$('v023Dob').value,lop:$('v023Class').value.trim(),email:$('v023Email').value.trim(),thong_tin:{}};
-    try{await v023Save([item]);v023Status('Đã lưu hồ sơ; chưa cấp tài khoản đăng nhập.');$('v023Form').reset();await v023Load()}catch(err){v023Status(err.message,true)}
+    const button=$('v023Submit');button.disabled=true;
+    try{
+      if($('v023Id').value)await call('hoso_update',{truong_id:v023School(),du_lieu:{id:$('v023Id').value,ngay_cap_nhat:$('v023Updated').value,ho_ten:item.ho_ten,ngay_sinh:item.ngay_sinh,lop:item.lop,email:item.email}});
+      else await v023Save([item]);
+      v023ResetEdit();await v023Load();v023Status('Đã lưu hồ sơ học sinh vào CSDL.');
+    }catch(err){v023Status('Không lưu được hồ sơ: '+err.message,true)}finally{button.disabled=false}
   };
-  async function v023Load(){try{const data=await call('danh_sach_ho_so',{truong_id:v023School()});
-    const root=$('v023List');root.replaceChildren();for(const p of data){const el=document.createElement('div');el.className='school';
-      const title=document.createElement('strong');title.textContent=p.ho_ten+' · '+p.ma_dinh_danh;
-      const small=document.createElement('small');small.textContent=(p.loai==='student'?'Học sinh':'Giáo viên')+(p.lop?' · '+p.lop:'')+(p.email?' · '+p.email:'');el.append(title,small);root.append(el)}
-    v023Status(`Đã tải ${data.length} hồ sơ (tối đa 500 hồ sơ đầu tiên).`)
-  }catch(err){v023Status(err.message,true)}}
+  function v023Render(){
+    const query=$('v023Search').value.trim().toLocaleLowerCase('vi');
+    const rows=v023Rows.filter(p=>[p.ho_ten,p.ma_dinh_danh,p.lop].some(value=>String(value||'').toLocaleLowerCase('vi').includes(query)));
+    const root=$('v023List');root.replaceChildren();
+    for(const p of rows){const row=document.createElement('article');row.className='v023-student-row';
+      const info=document.createElement('div');const title=document.createElement('strong');title.textContent=p.ho_ten;const small=document.createElement('small');small.textContent=`${p.loai==='student'?'Học sinh':'Giáo viên'} · ${p.ma_dinh_danh}${p.lop?' · '+p.lop:''}`;info.append(title,small);
+      const actions=document.createElement('div');actions.className='v023-row-actions';
+      const edit=document.createElement('button');edit.type='button';edit.className='outline';edit.textContent='✎ Sửa';edit.onclick=()=>{v023Mode('manual');$('v023Id').value=p.id;$('v023Updated').value=p.ngay_cap_nhat;$('v023Type').value=p.loai;$('v023Type').disabled=true;$('v023Code').value=p.ma_dinh_danh;$('v023Code').readOnly=true;$('v023Name').value=p.ho_ten;$('v023Dob').value=p.ngay_sinh||'';$('v023Class').value=p.lop||'';$('v023Email').value=p.email||'';$('v023Submit').textContent='💾 Lưu thay đổi';$('v023CancelEdit').hidden=false;$('v023ManualSection').scrollIntoView({behavior:'smooth',block:'start'});};
+      const archive=document.createElement('button');archive.type='button';archive.className='outline';archive.textContent='Ngừng hiệu lực';archive.onclick=async()=>{if(!confirm(`Ngừng hiệu lực hồ sơ ${p.ho_ten}?`))return;try{await call('hoso_archive',{truong_id:v023School(),du_lieu:{id:p.id,ngay_cap_nhat:p.ngay_cap_nhat}});await v023Load();v023Status('Đã ngừng hiệu lực hồ sơ.')}catch(err){v023Status(err.message,true)}};
+      actions.append(edit,archive);row.append(info,actions);root.append(row);
+    }
+    if(!rows.length)root.textContent=query?'Không tìm thấy học sinh phù hợp.':'Chưa có hồ sơ học sinh.';
+  }
+  $('v023Search').oninput=v023Render;
+  async function v023Load(){try{const data=await call('hoso_list',{truong_id:v023School()});v023Rows=Array.isArray(data)?data:[];v023Render();v023Status(`Đã tải ${v023Rows.filter(p=>p.loai==='student').length} học sinh; ${v023Rows.length} hồ sơ đang hoạt động.`);}
+    catch(err){v023Status('Không tải được danh sách: '+err.message,true)}}
   $('v023Reload').onclick=v023Load;
   const v023Date=v=>{
     if(!v)return '';
@@ -302,12 +329,13 @@
       v023Pending=preview;const root=$('v023PreviewRows');root.replaceChildren();
       for(const p of preview.slice(0,12)){const div=document.createElement('div');div.textContent=`${p.ma_dinh_danh} · ${p.ho_ten}${p.lop?' · '+p.lop:''}`;root.append(div)}
       $('v023PreviewInfo').textContent=`${preview.length} hồ sơ hợp lệ; ${invalid} dòng bỏ qua. Xem trước 12 dòng. Chưa ghi dữ liệu.`;
+      $('v023Import').textContent=`💾 Ghi ${preview.length} hồ sơ hợp lệ vào CSDL`;
       $('v023Import').hidden=!preview.length;
     }catch(err){$('v023PreviewInfo').textContent='Không đọc được Excel: '+err.message}
   };
   $('v023Import').onclick=async()=>{if(!v023Pending.length)return;
     if(!confirm(`Nhập/cập nhật ${v023Pending.length} hồ sơ tại trường hiện tại? Không tạo tài khoản Auth.`))return;
-    $('v023Import').disabled=true;try{const n=await v023Save(v023Pending);v023Status(`Đã lưu ${n} hồ sơ.`);v023Pending=[];$('v023Import').hidden=true;await v023Load()}
+    $('v023Import').disabled=true;try{const n=await v023Save(v023Pending);v023Pending=[];$('v023Import').hidden=true;$('v023Excel').value='';$('v023PreviewRows').replaceChildren();$('v023PreviewInfo').textContent=`Đã ghi ${n} hồ sơ vào CSDL.`;await v023Load();v023Status(`Đã lưu ${n} hồ sơ. Có thể chọn học sinh trong tab Chấm thi đua.`)}
     catch(err){v023Status('Nhập chưa hoàn tất: '+err.message,true)}finally{$('v023Import').disabled=false}
   };
   initialize().catch(e=>msg(e.message,true));
