@@ -95,6 +95,7 @@
       if (!item.ma_mang || !item.ten_mang) item.loi.push('Thiếu mã hoặc tên mảng');
       if (!item.ma || !item.ten) item.loi.push('Thiếu mã hoặc tên tiêu chí');
       if (!item.doi_tuong) item.loi.push('Đối tượng phải là student hoặc class');
+      if (['student', 'class'].includes(normalize(fixedRaw)) || ['student', 'class'].includes(normalize(limitRaw))) item.loi.push('Cot diem dang chua student/class; hay dua student/class vao cot doi_tuong va nhap so diem vao cot diem');
       const score = mode === 'fixed' ? item.diem_co_dinh : item.diem_gioi_han;
       if (!Number.isFinite(score) || score === 0 || score < -100000 || score > 100000) item.loi.push('Diem khong hop le cho che do da chon');
       if (!item.chu_ky.length || item.chu_ky.some(cycle => !['week', 'month', 'semester', 'year'].includes(cycle))) item.loi.push('Chu kỳ không hợp lệ');
