@@ -14,9 +14,6 @@
   let selectedAreaId = 'all';
   let areaFilterSelect = null;
   let areaFilterLabel = null;
-  let formulaToolbar = null;
-  let formulaCriterionSelect = null;
-  let formulaOpenButton = null;
   const selectedCriteriaIds = new Set();
   let selectionToolbar = null;
   let selectionCount = null;
@@ -52,7 +49,7 @@
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       if (response.status === 400 && result.error === 'Thao tác không hợp lệ') {
-        throw Error(['tieuchi_versions', 'tieuchi_formula_get', 'tieuchi_formula_save'].includes(hanh_dong)
+        throw Error(hanh_dong === 'tieuchi_versions'
           ? 'Backend chưa triển khai tính năng tiêu chí V0.2.7. Hãy deploy Edge Function mới trước.'
           : 'Backend chưa triển khai action V0.2.4. Hãy deploy Edge Function V0.2.4 trước.');
       }
@@ -150,14 +147,6 @@
     };
     selectionToolbar.append(selectionCount, selectAllButton, clearSelectionButton, archiveSelectedButton);
     $('v024Rows').before(selectionToolbar);
-    formulaToolbar = $('v027FormulaToolbar');
-    formulaCriterionSelect = $('v027FormulaCriterion');
-    formulaOpenButton = $('v027FormulaOpen');
-    formulaOpenButton.onclick = () => {
-      const row = rows.find(item => item.id === formulaCriterionSelect.value);
-      if (row) showFormulaEditor(row);
-    };
-    formulaCriterionSelect.onchange = () => { formulaOpenButton.disabled = !formulaCriterionSelect.value; };
     const iconButton = (button, symbol) => {
       if (!button || button.dataset.iconReady) return;
       button.dataset.iconReady = 'true';
@@ -179,7 +168,6 @@
       });
       profileLabel.hidden = kind !== 'hoso';
       areaFilterLabel.hidden = kind !== 'tieuchi';
-      if (formulaToolbar) formulaToolbar.hidden = kind !== 'tieuchi';
       if (selectionToolbar) selectionToolbar.hidden = kind !== 'tieuchi';
       if (kind !== 'tieuchi') selectedCriteriaIds.clear();
       if (kind !== 'hoso') profileFilter = 'all';
@@ -188,29 +176,9 @@
       const clearText = $('v024Clear').querySelector('span:last-child');
       if (clearText) clearText.textContent = kind === 'hoso' ? 'Thêm hồ sơ ở tab Người dùng' : `Thêm ${kindName}`;
       window.edunexaSyncV025Import?.(kind);
-      syncFormulaToolbar();
     }
     window.edunexaSyncV024Kind = syncKindControls;
     syncKindControls();
-  }
-
-  function syncFormulaToolbar() {
-    if (!formulaCriterionSelect || !formulaOpenButton) return;
-    const current = formulaCriterionSelect.value;
-    formulaCriterionSelect.replaceChildren();
-    if (!rows.length) {
-      formulaCriterionSelect.append(el('option', { value: '', textContent: 'Tải danh sách tiêu chí trước' }));
-      formulaOpenButton.disabled = true;
-      return;
-    }
-    for (const row of rows) {
-      formulaCriterionSelect.append(el('option', {
-        value: row.id,
-        textContent: `${row.ma} · ${row.ten}`,
-      }));
-    }
-    formulaCriterionSelect.value = rows.some(row => row.id === current) ? current : rows[0].id;
-    formulaOpenButton.disabled = false;
   }
 
   function syncSelectionToolbar() {
@@ -279,75 +247,6 @@
     } catch (error) {
       body.replaceChildren(el('p', { className: 'error', textContent: error.message }));
     }
-  }
-
-  function ensureFormulaDialog() {
-    let dialog = $('v027FormulaDialog');
-    if (dialog) return dialog;
-    dialog = el('dialog', { id: 'v027FormulaDialog' });
-    dialog.innerHTML = '<h3>Công thức thi đua</h3><p class="v024-formula-help">Công thức chỉ lưu cấu trúc an toàn, không chạy JavaScript hay SQL.</p><label>Khối công thức<select id="v027FormulaOp"><option value="constant">Điểm cố định</option><option value="event_score">Điểm từ sự kiện</option><option value="sum">Tổng nhiều sự kiện</option><option value="clamp">Giới hạn điểm sự kiện</option></select></label><label id="v027FormulaValueLabel">Giá trị<input id="v027FormulaValue" type="number" step="0.01"></label><label id="v027FormulaEventLabel">Mã sự kiện<input id="v027FormulaEvent" maxlength="80" placeholder="late"></label><label id="v027FormulaArgsLabel">Mã sự kiện, mỗi dòng một mã<textarea id="v027FormulaArgs" rows="4" placeholder="late\nabsence"></textarea></label><div id="v027FormulaClampFields"><label>Điểm tối thiểu<input id="v027FormulaMin" type="number" step="0.01"></label><label>Điểm tối đa<input id="v027FormulaMax" type="number" step="0.01"></label></div><pre id="v027FormulaPreview" class="v024-formula-preview"></pre><p id="v027FormulaNotice" role="status"></p><div class="v024-dialog-actions"><button id="v027FormulaSave" type="button">Lưu công thức</button><button id="v027FormulaClose" type="button" class="outline">Đóng</button></div>';
-    const op = dialog.querySelector('#v027FormulaOp');
-    const update = () => {
-      const value = op.value;
-      dialog.querySelector('#v027FormulaValueLabel').hidden = value !== 'constant';
-      dialog.querySelector('#v027FormulaEventLabel').hidden = !['event_score', 'clamp'].includes(value);
-      dialog.querySelector('#v027FormulaArgsLabel').hidden = value !== 'sum';
-      dialog.querySelector('#v027FormulaClampFields').hidden = value !== 'clamp';
-      updateFormulaPreview(dialog);
-    };
-    op.onchange = update;
-    ['v027FormulaValue', 'v027FormulaEvent', 'v027FormulaArgs', 'v027FormulaMin', 'v027FormulaMax'].forEach(id => dialog.querySelector(`#${id}`).oninput = () => updateFormulaPreview(dialog));
-    dialog.querySelector('#v027FormulaClose').onclick = () => { if (typeof dialog.close === 'function') dialog.close(); else dialog.open = false; };
-    dialog.querySelector('#v027FormulaSave').onclick = async () => {
-      const row = dialog._criterion;
-      const notice = dialog.querySelector('#v027FormulaNotice');
-      try {
-        const ast = formulaAstFromDialog(dialog);
-        await api('tieuchi_formula_save', { id: row.id, ast });
-        notice.textContent = 'Đã lưu phiên bản công thức.';
-      } catch (error) { notice.textContent = error.message; }
-    };
-    $('v024Panel').append(dialog);
-    update();
-    return dialog;
-  }
-
-  function formulaAstFromDialog(dialog) {
-    const op = dialog.querySelector('#v027FormulaOp').value;
-    if (op === 'constant') return { op, value: Number(dialog.querySelector('#v027FormulaValue').value) };
-    if (op === 'event_score') return { op, event: dialog.querySelector('#v027FormulaEvent').value.trim() };
-    if (op === 'sum') return { op, args: dialog.querySelector('#v027FormulaArgs').value.split(/\r?\n/).map(item => item.trim()).filter(Boolean).map(event => ({ op: 'event_score', event })) };
-    return { op, min: Number(dialog.querySelector('#v027FormulaMin').value), max: Number(dialog.querySelector('#v027FormulaMax').value), expr: { op: 'event_score', event: dialog.querySelector('#v027FormulaEvent').value.trim() } };
-  }
-
-  function updateFormulaPreview(dialog) {
-    try { dialog.querySelector('#v027FormulaPreview').textContent = JSON.stringify(formulaAstFromDialog(dialog), null, 2); }
-    catch { dialog.querySelector('#v027FormulaPreview').textContent = ''; }
-  }
-
-  function fillFormulaDialog(dialog, ast) {
-    const value = ast?.op || 'constant';
-    dialog.querySelector('#v027FormulaOp').value = ['constant', 'event_score', 'sum', 'clamp'].includes(value) ? value : 'constant';
-    dialog.querySelector('#v027FormulaValue').value = ast?.value ?? '';
-    const expr = ast?.expr?.event || '';
-    dialog.querySelector('#v027FormulaEvent').value = ast?.event || expr;
-    dialog.querySelector('#v027FormulaArgs').value = (ast?.args || []).map(item => item.event || '').filter(Boolean).join('\n');
-    dialog.querySelector('#v027FormulaMin').value = ast?.min ?? '';
-    dialog.querySelector('#v027FormulaMax').value = ast?.max ?? '';
-    dialog.querySelector('#v027FormulaNotice').textContent = '';
-    dialog.querySelector('#v027FormulaOp').dispatchEvent(new Event('change'));
-  }
-
-  async function showFormulaEditor(row) {
-    const dialog = ensureFormulaDialog();
-    dialog._criterion = row;
-    dialog.querySelector('h3').textContent = `Công thức: ${row.ma} · ${row.ten}`;
-    dialog.querySelector('#v027FormulaNotice').textContent = 'Đang tải công thức...';
-    if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.open = true;
-    try {
-      const current = await api('tieuchi_formula_get', { id: row.id });
-      fillFormulaDialog(dialog, current?.ast);
-    } catch (error) { dialog.querySelector('#v027FormulaNotice').textContent = error.message; }
   }
 
   function openCriteriaForArea(area) {
@@ -425,7 +324,6 @@
 
   function renderRows() {
     const kind = $('v024Kind').value;
-    syncFormulaToolbar();
     syncSelectionToolbar();
     const visibleRows = kind === 'hoso' && profileFilter !== 'all'
       ? rows.filter(row => row.loai === profileFilter)
@@ -466,10 +364,6 @@
         actions.append(children);
       }
       if (kind === 'tieuchi') {
-        const formula = el('button', { type: 'button', className: 'outline v024-action', title: 'Cấu hình công thức tiêu chí' });
-        formula.innerHTML = '<span aria-hidden="true">ƒ</span><span>Công thức</span>';
-        formula.onclick = () => showFormulaEditor(row);
-        actions.append(formula);
         const history = el('button', { type: 'button', className: 'outline v024-action', title: 'Xem lịch sử phiên bản tiêu chí' });
         history.innerHTML = '<span aria-hidden="true">◷</span><span>Lịch sử</span>';
         history.onclick = () => showCriterionHistory(row);
