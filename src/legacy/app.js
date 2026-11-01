@@ -164,12 +164,39 @@
   async function b43Logs(){const root=$('b43LogList');root.textContent='Đang tải...';try{const logs=await b43api('nhat_ky');root.replaceChildren();for(const log of logs){const row=b43Node('div','');row.className='b43entry';const date=new Date(log.ngay_tao).toLocaleString('vi-VN');row.append(b43Node('span',`${date} · ${log.hanh_dong} · ${log.doi_tuong}`));root.append(row)}if(!logs.length)root.textContent='Chưa có nhật ký B4.3.'}catch(e){root.textContent=e.message}}
   const profileBox = document.querySelector('.v023box');
   const profileButton = $('b43OpenProfiles');
-  if (profileBox && profileButton) {
-    $('b43-settings').append(profileBox);
-    profileBox.hidden = true;
-    profileButton.onclick = () => { profileBox.hidden = !profileBox.hidden; profileButton.textContent = profileBox.hidden ? 'Hồ sơ người dùng' : 'Ẩn hồ sơ người dùng'; };
+  if (profileBox) {
+    const profilesPage = document.createElement('section');
+    profilesPage.id = 'b43-profiles';
+    profilesPage.className = 'b43page panel';
+    profilesPage.hidden = true;
+    const profileTools = document.createElement('div');
+    profileTools.className = 'b43tabs v023-profile-tabs';
+    const manageProfiles = b43Node('button', '👩‍🎓 Quản lý học sinh');
+    manageProfiles.type = 'button';
+    const importProfiles = b43Node('button', '📥 Nhập Excel');
+    importProfiles.type = 'button';
+    importProfiles.className = 'outline';
+    profileTools.append(manageProfiles, importProfiles);
+    profilesPage.append(b43Node('h2', 'Quản lý học sinh'), b43Node('p', 'Thêm hồ sơ từng học sinh hoặc nhập danh sách Excel để dùng trong ghi nhận thi đua.'), profileTools, profileBox);
+    manageProfiles.onclick = () => $('v023Code')?.focus();
+    importProfiles.onclick = () => $('v023Excel')?.focus();
+    $('b43').append(profilesPage);
+    profileBox.hidden = false;
+    profileButton?.remove();
+    const profileTab = document.createElement('button');
+    profileTab.type = 'button';
+    profileTab.className = 'outline';
+    profileTab.dataset.b43Tab = 'profiles';
+    profileTab.textContent = '👩‍🎓 Quản lý học sinh';
+    document.querySelector('.b43tabs')?.append(profileTab);
+    const profileCard = document.createElement('article');
+    profileCard.dataset.openTab = 'profiles';
+    profileCard.tabIndex = 0;
+    profileCard.setAttribute('role', 'button');
+    profileCard.append(b43Node('strong', 'Quản lý học sinh'), b43Node('small', 'Nhập hồ sơ và danh sách Excel'), b43Node('span', 'Mở danh sách'));
+    document.querySelector('.dashboard-modules')?.append(profileCard);
   }
-  function b43Open(tab){for(const x of ['years','classes','settings','logs','overview','members'])$('b43-'+x).hidden=x!==tab;for(const b of document.querySelectorAll('[data-b43-tab]'))b.classList.toggle('selected',b.dataset.b43Tab===tab);if(tab==='logs')b43Logs();if(tab==='members')b44Members()}
+  function b43Open(tab){for(const x of ['years','classes','settings','logs','overview','members','profiles'])$('b43-'+x).hidden=x!==tab;for(const b of document.querySelectorAll('[data-b43-tab]'))b.classList.toggle('selected',b.dataset.b43Tab===tab);if(tab==='logs')b43Logs();if(tab==='members')b44Members()}
   // B4.4: read-only, school-scoped membership listing. No new auth client or write path.
   let b44Request=0;
   async function b44Members(){
