@@ -72,51 +72,54 @@
 
   let formulaBox = null;
   let formulaAreaSelect = null;
-  let formulaModeSelect = null;
-  let formulaMinInput = null;
-  let formulaMaxInput = null;
+  let formulaEditor = null;
+  let formulaCriteriaList = null;
   let formulaNotice = null;
+  let formulaPendingCount = false;
+  let formulaTokenRefs = [];
 
   function ensureFormulaBox() {
     if (formulaBox) return;
     formulaBox = el('section', { id: 'v028FormulaBox', className: 'v024-formula-panel', hidden: true });
-    formulaBox.append(el('h3', { textContent: 'Cau hinh cong thuc thi dua cho mang' }));
-    formulaBox.append(el('p', { textContent: 'Cong thuc thuoc mang thi dua va tong hop diem thuc te cua cac tieu chi con. Khong gan cong thuc vao tieu chi.' }));
-    const areaLabel = el('label', { textContent: 'Mang thi dua' });
+    formulaBox.append(el('h3', { textContent: 'Cấu hình công thức thi đua cho mảng' }));
+    formulaBox.append(el('p', { textContent: 'Chọn mảng, kéo tiêu chí và phép toán vào ô công thức. Công thức chỉ thuộc mảng, không gắn vào tiêu chí.' }));
+    const areaLabel = el('label', { textContent: 'Mảng thi đua' });
     formulaAreaSelect = el('select', { id: 'v028FormulaArea' });
     areaLabel.append(formulaAreaSelect);
     formulaBox.append(areaLabel);
-    const modeLabel = el('label', { textContent: 'Kieu cong thuc' });
-    formulaModeSelect = el('select', { id: 'v028FormulaMode' });
-    formulaModeSelect.append(el('option', { value: 'sum_criteria', textContent: 'Tong diem cac tieu chi' }));
-    formulaModeSelect.append(el('option', { value: 'clamp_sum', textContent: 'Tong diem co gioi han' }));
-    modeLabel.append(formulaModeSelect);
-    formulaBox.append(modeLabel);
-    const range = el('div', { className: 'v028-formula-range' });
-    const minLabel = el('label', { textContent: 'Diem san (tuy chon)' });
-    formulaMinInput = el('input', { id: 'v028FormulaMin', type: 'number', step: '0.01', placeholder: 'De trong neu khong gioi han' });
-    minLabel.append(formulaMinInput);
-    const maxLabel = el('label', { textContent: 'Diem tran (tuy chon)' });
-    formulaMaxInput = el('input', { id: 'v028FormulaMax', type: 'number', step: '0.01', placeholder: 'De trong neu khong gioi han' });
-    maxLabel.append(formulaMaxInput);
-    range.append(minLabel, maxLabel);
-    formulaBox.append(range);
-    const save = el('button', { type: 'button', className: 'outline', textContent: 'Luu cong thuc cho mang' });
+    formulaBox.append(el('h4', { textContent: 'Tiêu chí thuộc mảng (kéo vào ô công thức)' }));
+    formulaCriteriaList = el('div', { id: 'v028FormulaCriteria', className: 'v028-formula-criteria' });
+    formulaBox.append(formulaCriteriaList);
+    const tools = el('div', { className: 'v028-formula-tools' });
+    const countToken = el('button', { type: 'button', className: 'outline v028-formula-token', textContent: 'Giá trị / Đếm' });
+    countToken.draggable = true;
+    countToken.dataset.formulaToken = 'count_value';
+    countToken.onclick = () => insertFormulaToken({ type: 'count_value' });
+    countToken.ondragstart = event => event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'count_value' }));
+    tools.append(countToken);
+    for (const operator of ['+', '-', '×', '÷', '%', '>', '<', '>=', '<=', '=', '<>', 'if', 'and', 'or', '(', ')']) {
+      const button = el('button', { type: 'button', className: 'outline v028-formula-token', textContent: operator });
+      button.onclick = () => insertFormulaToken({ type: 'operator', value: operator });
+      button.draggable = true;
+      button.ondragstart = event => event.dataTransfer.setData('text/plain', JSON.stringify({ type: 'operator', value: operator }));
+      tools.append(button);
+    }
+    formulaBox.append(tools);
+    formulaEditor = el('textarea', { id: 'v028FormulaEditor', className: 'v028-formula-editor', rows: 8, placeholder: 'Kéo tiêu chí và phép toán vào đây...' });
+    formulaEditor.ondragover = event => event.preventDefault();
+    formulaEditor.ondrop = event => { event.preventDefault(); try { insertFormulaToken(JSON.parse(event.dataTransfer.getData('text/plain'))); } catch (_) { /* ignore invalid drag */ } };
+    formulaBox.append(formulaEditor);
+    const save = el('button', { type: 'button', className: 'outline', textContent: 'Lưu công thức cho mảng' });
     formulaNotice = el('p', { role: 'status' });
     formulaBox.append(save, formulaNotice);
-    formulaAreaSelect.onchange = loadAreaFormula;
-    formulaModeSelect.onchange = syncFormulaRange;
+    formulaAreaSelect.onchange = () => { renderFormulaCriteria(); loadAreaFormula(); };
     save.onclick = async () => {
       const areaId = formulaAreaSelect.value;
       if (!areaId) { formulaNotice.textContent = 'Hay tao mang truoc khi cau hinh cong thuc.'; return; }
-      const mode = formulaModeSelect.value;
-      let ast = { op: 'sum_criteria' };
-      if (mode === 'clamp_sum') {
-        const min = Number(formulaMinInput.value);
-        const max = Number(formulaMaxInput.value);
-        if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) { formulaNotice.textContent = 'Diem san/tran khong hop le.'; return; }
-        ast = { op: 'clamp', min, max, expr: { op: 'sum_criteria' } };
-      }
+      const source = formulaEditor.value.trim();
+      if (!source) { formulaNotice.textContent = 'Hãy kéo tiêu chí hoặc phép toán vào ô công thức.'; return; }
+      if (source.length > 5000 || /[;{}]|eval|Function/i.test(source)) { formulaNotice.textContent = 'Công thức chứa ký tự hoặc từ khóa không được phép.'; return; }
+      const ast = { op: 'expression', source, tokens: formulaTokenRefs };
       save.disabled = true;
       try { const result = await api('mang_formula_save', { id: areaId, ast }); formulaNotice.textContent = `Da luu cong thuc phien ban ${result.phien_ban}.`; }
       catch (error) { formulaNotice.textContent = error.message; }
@@ -125,10 +128,45 @@
     $('v024Form').after(formulaBox);
   }
 
-  function syncFormulaRange() {
-    const enabled = formulaModeSelect?.value === 'clamp_sum';
-    if (formulaMinInput) formulaMinInput.disabled = !enabled;
-    if (formulaMaxInput) formulaMaxInput.disabled = !enabled;
+  function insertAtCursor(text) {
+    if (!formulaEditor) return;
+    const start = formulaEditor.selectionStart;
+    const end = formulaEditor.selectionEnd;
+    formulaEditor.setRangeText(text, start, end, 'end');
+    formulaEditor.focus();
+  }
+
+  function insertFormulaToken(token) {
+    if (token.type === 'count_value') {
+      insertAtCursor('COUNT_VALUE(');
+      formulaPendingCount = true;
+      return;
+    }
+    if (token.type === 'criterion') {
+      const ref = `[[TC:${token.code}]]`;
+      if (!formulaTokenRefs.some(item => item.code === token.code)) formulaTokenRefs.push({ type: 'criterion', id: token.id, code: token.code });
+      if (formulaPendingCount) { insertAtCursor(`${ref}, {giá_trị})`); formulaPendingCount = false; }
+      else insertAtCursor(ref);
+      return;
+    }
+    insertAtCursor(token.value);
+  }
+
+  function renderFormulaCriteria() {
+    if (!formulaCriteriaList) return;
+    formulaCriteriaList.replaceChildren();
+    const areaId = formulaAreaSelect?.value;
+    const currentCriteria = criteriaRows.filter(row => row.mang_id === areaId);
+    if (!currentCriteria.length) { formulaCriteriaList.append(el('small', { textContent: 'Mảng này chưa có tiêu chí.' })); return; }
+    for (const criterion of currentCriteria) {
+      const mode = criterion.che_do_diem === 'flexible' ? `linh hoạt ≤ ${criterion.diem_gioi_han ?? criterion.diem}` : `cố định ${criterion.diem_co_dinh ?? criterion.diem}`;
+      const tile = el('button', { type: 'button', className: 'outline v028-formula-criterion', textContent: `${criterion.ma} · ${criterion.ten} · ${mode}` });
+      tile.draggable = true;
+      const token = { type: 'criterion', id: criterion.id, code: criterion.ma };
+      tile.onclick = () => insertFormulaToken(token);
+      tile.ondragstart = event => event.dataTransfer.setData('text/plain', JSON.stringify(token));
+      formulaCriteriaList.append(tile);
+    }
   }
 
   async function loadAreaFormula() {
@@ -137,17 +175,12 @@
     try {
       const result = await api('mang_formula_get', { id: formulaAreaSelect.value });
       const ast = result?.ast || { op: 'sum_criteria' };
-      if (ast.op === 'clamp' && ast.expr?.op === 'sum_criteria') {
-        formulaModeSelect.value = 'clamp_sum';
-        formulaMinInput.value = ast.min ?? '';
-        formulaMaxInput.value = ast.max ?? '';
-      } else {
-        formulaModeSelect.value = 'sum_criteria';
-        formulaMinInput.value = '';
-        formulaMaxInput.value = '';
-      }
-      syncFormulaRange();
-      formulaNotice.textContent = result?.phien_ban ? `Dang xem phien ban ${result.phien_ban}.` : 'Chua co cong thuc; mac dinh tong diem cac tieu chi.';
+      formulaTokenRefs = Array.isArray(ast.tokens) ? ast.tokens : [];
+      formulaPendingCount = false;
+      formulaEditor.value = ast.op === 'expression'
+        ? ast.source || ''
+        : ast.op === 'clamp' ? `CLAMP(SUM_ALL(), ${ast.min}, ${ast.max})` : 'SUM_ALL()';
+      formulaNotice.textContent = result?.phien_ban ? `Đang xem phiên bản ${result.phien_ban}.` : 'Chưa có công thức; hãy kéo tiêu chí vào ô soạn thảo.';
     } catch (error) { formulaNotice.textContent = error.message; }
   }
 
@@ -160,6 +193,7 @@
     formulaAreaSelect.replaceChildren();
     for (const area of areas) formulaAreaSelect.append(el('option', { value: area.id, textContent: `${area.ma} - ${area.ten}` }));
     formulaAreaSelect.value = areas.some(area => area.id === current) ? current : (areas[0]?.id || '');
+    renderFormulaCriteria();
     loadAreaFormula();
   }
 

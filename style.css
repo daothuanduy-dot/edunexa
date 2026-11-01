@@ -62,4 +62,7 @@
 .v024-formula-panel{margin:18px 0;padding:16px;border:1px solid #b7d4ec;border-radius:12px;background:#f3f9fe}
 .v024-formula-panel h3{margin-top:0}
 .v028-formula-range{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.v028-formula-criteria,.v028-formula-tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.v028-formula-criterion,.v028-formula-token{font-size:13px;padding:8px 10px}
+.v028-formula-editor{width:100%;min-height:150px;resize:vertical;border:2px dashed #8eb8d9;border-radius:10px;padding:12px;font:inherit;line-height:1.5;background:#fff}
 @media(max-width:600px){.v028-formula-range{grid-template-columns:1fr}}
