@@ -64,5 +64,15 @@
 .v028-formula-range{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .v028-formula-criteria,.v028-formula-tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .v028-formula-criterion,.v028-formula-token{font-size:13px;padding:8px 10px}
+.v028-formula-target,.v024-target-field{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:8px 12px;border:1px solid #c9ddec;border-radius:8px}
+.v028-formula-target legend,.v024-target-field legend{padding:0 5px;font-weight:600}
+.v028-formula-target label,.v024-target-field label{display:inline-flex;align-items:center;gap:6px;margin:0}
+.v028-formula-value{background:#f4f9fd;border-style:dashed}
+.v028-formula-help{display:block;color:#5f7890;margin:4px 0 10px}
 .v028-formula-editor{width:100%;min-height:150px;resize:vertical;border:2px dashed #8eb8d9;border-radius:10px;padding:12px;font:inherit;line-height:1.5;background:#fff}
 @media(max-width:600px){.v028-formula-range{grid-template-columns:1fr}}
+.v028-formula-import{display:grid;gap:8px;margin:12px 0;padding:12px;border:1px solid #c9ddec;border-radius:8px;background:#f8fbfe}
+.v028-formula-import small{color:#5f7890}
+.v028-formula-import-controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.v028-formula-import-controls input[type=file]{min-width:220px;flex:1}
+.v028-formula-import-controls select{min-width:220px;flex:1}

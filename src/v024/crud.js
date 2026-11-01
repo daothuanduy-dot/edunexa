@@ -77,6 +77,96 @@
   let formulaNotice = null;
   let formulaPendingCount = false;
   let formulaTokenRefs = [];
+  let formulaTarget = 'student';
+  let formulaTemplateRows = [];
+  let formulaTemplateFile = null;
+  let formulaTemplateSelect = null;
+  let formulaTemplateApply = null;
+
+  function formulaText(value) {
+    return String(value ?? '').trim();
+  }
+
+  function normalizeFormulaLabel(value) {
+    return formulaText(value).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+
+  async function loadFormulaXlsx() {
+    if (window.XLSX) return window.XLSX;
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Không tải được thư viện Excel. Hãy kiểm tra kết nối mạng.'));
+      document.head.appendChild(script);
+    });
+    if (!window.XLSX) throw new Error('Thư viện Excel chưa sẵn sàng.');
+    return window.XLSX;
+  }
+
+  function syncFormulaTokensFromSource(source, areaId) {
+    const refs = [];
+    const unmatched = [];
+    const pattern = /\[\[TC:([^\]]+)\]\]/g;
+    for (const match of source.matchAll(pattern)) {
+      const code = formulaText(match[1]);
+      const criterion = criteriaRows.find(row => row.mang_id === areaId && row.ma === code);
+      if (!criterion) {
+        unmatched.push(code);
+        continue;
+      }
+      const fixedValue = criterion.che_do_diem === 'fixed' ? Number(criterion.diem_co_dinh ?? criterion.diem) : undefined;
+      if (!refs.some(item => item.code === code)) refs.push({
+        type: 'criterion',
+        id: criterion.id,
+        code,
+        value: Number.isFinite(fixedValue) ? fixedValue : null,
+      });
+    }
+    formulaTokenRefs = refs;
+    return unmatched;
+  }
+
+  async function readFormulaTemplate() {
+    const file = formulaTemplateFile?.files?.[0];
+    if (!file) {
+      formulaNotice.textContent = 'Hãy chọn file Excel có sheet Cách tính điểm.';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      formulaNotice.textContent = 'File Excel vượt quá giới hạn 5 MB.';
+      return;
+    }
+    try {
+      formulaNotice.textContent = 'Đang đọc sheet công thức...';
+      const XLSX = await loadFormulaXlsx();
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
+      const sheetName = workbook.SheetNames.find(name => normalizeFormulaLabel(name) === 'cach tinh diem') || workbook.SheetNames[1];
+      if (!sheetName) throw new Error('File không có sheet công thức ở vị trí thứ hai.');
+      const sheet = workbook.Sheets[sheetName];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: true });
+      formulaTemplateRows = rows.slice(1).map(row => ({
+        code: formulaText(row[0]),
+        scope: formulaText(row[1]),
+        source: formulaText(row[2]),
+        explanation: formulaText(row[3]),
+        sourceData: formulaText(row[4]),
+      })).filter(row => row.code && row.source);
+      formulaTemplateSelect.replaceChildren();
+      for (const row of formulaTemplateRows) {
+        formulaTemplateSelect.append(el('option', { value: row.code, textContent: `${row.code} · ${row.scope || row.source}` }));
+      }
+      formulaTemplateSelect.disabled = formulaTemplateRows.length === 0;
+      formulaTemplateApply.disabled = formulaTemplateRows.length === 0;
+      formulaNotice.textContent = `Đã đọc ${formulaTemplateRows.length} công thức từ sheet “${sheetName}”. Chọn một công thức để áp dụng cho mảng.`;
+    } catch (error) {
+      formulaTemplateRows = [];
+      formulaTemplateSelect.replaceChildren();
+      formulaTemplateSelect.disabled = true;
+      formulaTemplateApply.disabled = true;
+      formulaNotice.textContent = error.message;
+    }
+  }
 
   function ensureFormulaBox() {
     if (formulaBox) return;
@@ -87,11 +177,21 @@
     formulaAreaSelect = el('select', { id: 'v028FormulaArea' });
     areaLabel.append(formulaAreaSelect);
     formulaBox.append(areaLabel);
+    const targetField = el('fieldset', { className: 'v028-formula-target' });
+    targetField.append(el('legend', { textContent: 'Đối tượng tính' }));
+    for (const [value, text] of [['student', 'Cá nhân'], ['class', 'Tập thể / lớp']]) {
+      const label = el('label', { textContent: text });
+      const radio = el('input', { type: 'radio', name: 'v028_formula_target', value, checked: value === formulaTarget });
+      radio.onchange = () => { formulaTarget = value; renderFormulaCriteria(); };
+      label.prepend(radio);
+      targetField.append(label);
+    }
+    formulaBox.append(targetField);
     formulaBox.append(el('h4', { textContent: 'Tiêu chí thuộc mảng (kéo vào ô công thức)' }));
     formulaCriteriaList = el('div', { id: 'v028FormulaCriteria', className: 'v028-formula-criteria' });
     formulaBox.append(formulaCriteriaList);
     const tools = el('div', { className: 'v028-formula-tools' });
-    const countToken = el('button', { type: 'button', className: 'outline v028-formula-token', textContent: 'Giá trị / Đếm' });
+    const countToken = el('button', { type: 'button', className: 'outline v028-formula-token', textContent: 'Đếm theo giá trị' });
     countToken.draggable = true;
     countToken.dataset.formulaToken = 'count_value';
     countToken.onclick = () => insertFormulaToken({ type: 'count_value' });
@@ -105,13 +205,42 @@
       tools.append(button);
     }
     formulaBox.append(tools);
+    formulaBox.append(el('small', { className: 'v028-formula-help', textContent: 'Để đếm điểm 10: kéo “Đếm theo giá trị”, sau đó kéo tiêu chí có điểm cố định 10. Hệ thống tự chèn số 10.' }));
     formulaEditor = el('textarea', { id: 'v028FormulaEditor', className: 'v028-formula-editor', rows: 8, placeholder: 'Kéo tiêu chí và phép toán vào đây...' });
     formulaEditor.ondragover = event => event.preventDefault();
     formulaEditor.ondrop = event => { event.preventDefault(); try { insertFormulaToken(JSON.parse(event.dataTransfer.getData('text/plain'))); } catch (_) { /* ignore invalid drag */ } };
     formulaBox.append(formulaEditor);
     const save = el('button', { type: 'button', className: 'outline', textContent: 'Lưu công thức cho mảng' });
     formulaNotice = el('p', { role: 'status' });
-    formulaBox.append(save, formulaNotice);
+    const importBox = el('div', { className: 'v028-formula-import' });
+    importBox.append(el('strong', { textContent: 'Nạp công thức từ sheet 2' }));
+    importBox.append(el('small', { textContent: 'Chọn file Excel có sheet Cách tính điểm. Công thức sẽ được đưa vào mảng đang chọn.' }));
+    const importControls = el('div', { className: 'v028-formula-import-controls' });
+    formulaTemplateFile = el('input', { type: 'file', accept: '.xlsx,.xls', 'aria-label': 'Chọn file Excel có công thức' });
+    const readTemplate = el('button', { type: 'button', className: 'outline', textContent: 'Đọc sheet Cách tính điểm' });
+    readTemplate.onclick = readFormulaTemplate;
+    formulaTemplateSelect = el('select', { disabled: true, 'aria-label': 'Chọn công thức từ sheet 2' });
+    formulaTemplateApply = el('button', { type: 'button', className: 'outline', textContent: 'Áp dụng vào mảng đang chọn', disabled: true });
+    formulaTemplateApply.onclick = () => {
+      const selected = formulaTemplateRows.find(row => row.code === formulaTemplateSelect.value);
+      const areaId = formulaAreaSelect?.value;
+      if (!selected || !areaId) {
+        formulaNotice.textContent = 'Hãy chọn mảng và công thức trước khi áp dụng.';
+        return;
+      }
+      formulaEditor.value = selected.source;
+      const unmatched = syncFormulaTokensFromSource(selected.source, areaId);
+      formulaPendingCount = false;
+      if (unmatched.length) {
+        formulaNotice.textContent = `Đã nạp ${selected.code}; chưa tìm thấy tiêu chí: ${unmatched.join(', ')}. Hãy bổ sung đúng mã tiêu chí rồi lưu.`;
+        return;
+      }
+      formulaNotice.textContent = `Đã nạp ${selected.code}. Đang lưu công thức cho mảng ${formulaAreaSelect.options[formulaAreaSelect.selectedIndex]?.textContent || ''}.`;
+      save.click();
+    };
+    importControls.append(formulaTemplateFile, readTemplate, formulaTemplateSelect, formulaTemplateApply);
+    importBox.append(importControls);
+    formulaBox.append(importBox, save, formulaNotice);
     formulaAreaSelect.onchange = () => { renderFormulaCriteria(); loadAreaFormula(); };
     save.onclick = async () => {
       const areaId = formulaAreaSelect.value;
@@ -144,8 +273,11 @@
     }
     if (token.type === 'criterion') {
       const ref = `[[TC:${token.code}]]`;
-      if (!formulaTokenRefs.some(item => item.code === token.code)) formulaTokenRefs.push({ type: 'criterion', id: token.id, code: token.code });
-      if (formulaPendingCount) { insertAtCursor(`${ref}, {giá_trị})`); formulaPendingCount = false; }
+      if (!formulaTokenRefs.some(item => item.code === token.code && item.value === token.value)) formulaTokenRefs.push({ type: 'criterion', id: token.id, code: token.code, value: token.value ?? null });
+      if (formulaPendingCount) {
+        insertAtCursor(`${ref}, ${token.value === undefined || token.value === null ? 'VALUE' : token.value})`);
+        formulaPendingCount = false;
+      }
       else insertAtCursor(ref);
       return;
     }
@@ -156,16 +288,24 @@
     if (!formulaCriteriaList) return;
     formulaCriteriaList.replaceChildren();
     const areaId = formulaAreaSelect?.value;
-    const currentCriteria = criteriaRows.filter(row => row.mang_id === areaId);
+    const currentCriteria = criteriaRows.filter(row => row.mang_id === areaId && (!row.doi_tuong || row.doi_tuong === formulaTarget));
     if (!currentCriteria.length) { formulaCriteriaList.append(el('small', { textContent: 'Mảng này chưa có tiêu chí.' })); return; }
     for (const criterion of currentCriteria) {
       const mode = criterion.che_do_diem === 'flexible' ? `linh hoạt ≤ ${criterion.diem_gioi_han ?? criterion.diem}` : `cố định ${criterion.diem_co_dinh ?? criterion.diem}`;
       const tile = el('button', { type: 'button', className: 'outline v028-formula-criterion', textContent: `${criterion.ma} · ${criterion.ten} · ${mode}` });
       tile.draggable = true;
-      const token = { type: 'criterion', id: criterion.id, code: criterion.ma };
+      const fixedValue = criterion.che_do_diem === 'fixed' ? Number(criterion.diem_co_dinh ?? criterion.diem) : undefined;
+      const token = { type: 'criterion', id: criterion.id, code: criterion.ma, value: Number.isFinite(fixedValue) ? fixedValue : undefined };
       tile.onclick = () => insertFormulaToken(token);
       tile.ondragstart = event => event.dataTransfer.setData('text/plain', JSON.stringify(token));
       formulaCriteriaList.append(tile);
+      if (Number.isFinite(fixedValue)) {
+        const valueTile = el('button', { type: 'button', className: 'outline v028-formula-token v028-formula-value', textContent: `Giá trị ${fixedValue} · ${criterion.ma}` });
+        valueTile.draggable = true;
+        valueTile.onclick = () => insertFormulaToken(token);
+        valueTile.ondragstart = event => event.dataTransfer.setData('text/plain', JSON.stringify(token));
+        formulaCriteriaList.append(valueTile);
+      }
     }
   }
 
@@ -444,12 +584,15 @@
       areaLabel.append(areaSelect);
       root.append(areaLabel);
 
-      const targetLabel = el('label', { textContent: 'Đối tượng' });
-      const targetSelect = el('select', { id: 'v024_doi_tuong' });
-      for (const [value, text] of [['student', 'Cá nhân'], ['class', 'Lớp']]) targetSelect.append(el('option', { value, textContent: text }));
-      targetSelect.value = row.doi_tuong || 'student';
-      targetLabel.append(targetSelect);
-      root.append(targetLabel);
+      const targetField = el('fieldset', { className: 'v024-target-field' });
+      targetField.append(el('legend', { textContent: 'Đối tượng áp dụng' }));
+      for (const [value, text] of [['student', 'Cá nhân'], ['class', 'Tập thể / lớp']]) {
+        const label = el('label', { textContent: text });
+        const radio = el('input', { type: 'radio', name: 'v024_doi_tuong', value, checked: (row.doi_tuong || 'student') === value });
+        label.prepend(radio);
+        targetField.append(label);
+      }
+      root.append(targetField);
 
       const group = el('fieldset');
       group.append(el('legend', { textContent: 'Chu kỳ (chọn nhiều)' }));
@@ -588,7 +731,7 @@
       data.diem_gioi_han = flexible ? $('v024_diem_gioi_han').value : data.diem_co_dinh;
       data.diem = data.diem_gioi_han;
       data.mang_id = $('v024_mang_id').value;
-      data.doi_tuong = $('v024_doi_tuong').value;
+      data.doi_tuong = document.querySelector('[name=v024_doi_tuong]:checked')?.value || 'student';
       data.chu_ky = [...document.querySelectorAll('[name=v024_cycle]:checked')].map(box => box.value);
       if (!data.chu_ky.length) { note('Chọn ít nhất một chu kỳ'); return; }
     }

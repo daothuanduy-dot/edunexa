@@ -70,7 +70,9 @@
     if (missing.length) throw Error(`Thiếu cột: ${missing.join(', ')}`);
 
     const seen = new Set();
-    return rows.slice(1, 101).map((source, index) => {
+    // Cho phép nhập bộ tiêu chí lớn (bộ mẫu năm học 2026-2027 có 137 dòng),
+    // nhưng vẫn giới hạn an toàn để tránh treo trình duyệt khi chọn nhầm tệp.
+    return rows.slice(1, 2001).map((source, index) => {
       const value = key => String(source[columns[key]] ?? '').trim();
       const target = normalize(value('doi_tuong'));
       const modeValue = normalize(value('che_do_diem'));
