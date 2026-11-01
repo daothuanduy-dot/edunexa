@@ -5,7 +5,7 @@
   const cfg = window.EDUNEXA_CONFIG;
   if (!cfg || !window.supabase) return;
   const sb = window.supabase.createClient(cfg.url, cfg.publishableKey);
-  const state = { school: null, areas: [], criteria: [], members: [], assignments: [], records: [] };
+  const state = { school: null, areas: [], criteria: [], members: [], assignments: [], records: [], targets: { student: [], class: [] } };
   let tabButton = null;
   let panel = null;
 
@@ -107,6 +107,51 @@
     }
     const target = document.querySelector(`input[name="v029RecordTarget"][value="${criterion.doi_tuong}"]`);
     if (target) target.checked = true;
+    void loadTargets();
+  }
+
+  async function loadTargets() {
+    const areaId = $('v029RecordArea')?.value;
+    const targetType = selectedValue('v029RecordTarget');
+    const select = $('v029RecordTargetSelect');
+    const manualLabel = $('v029RecordTargetManualLabel');
+    const manual = $('v029RecordTargetManual');
+    const hint = $('v029RecordTargetHint');
+    if (!areaId || !targetType || !select || !manualLabel || !manual || !hint) return;
+    try {
+      const result = await schoolApi('ghi_nhan_targets', { mang_id: areaId, doi_tuong: targetType });
+      const items = Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []);
+      state.targets[targetType] = items;
+      select.replaceChildren();
+      for (const item of items) {
+        const code = targetType === 'student' ? item.ma_dinh_danh : item.ma_lop;
+        const label = targetType === 'student'
+          ? `${item.ho_ten || code} · ${code}${item.lop ? ` · ${item.lop}` : ''}`
+          : `${code} · ${item.so_hoc_sinh || 0} học sinh`;
+        select.append(make('option', { value: code, textContent: label }));
+      }
+      const hasItems = items.length > 0;
+      select.hidden = !hasItems;
+      select.required = hasItems;
+      manualLabel.hidden = hasItems;
+      manual.required = !hasItems;
+      hint.textContent = hasItems
+        ? `Đã tải ${items.length} ${targetType === 'student' ? 'học sinh' : 'lớp'} thuộc phạm vi được phép ghi nhận.`
+        : 'Chưa có đối tượng phù hợp. Hãy nhập hồ sơ học sinh trước hoặc kiểm tra phân công ghi nhận.';
+    } catch (error) {
+      select.replaceChildren();
+      select.hidden = true;
+      select.required = false;
+      manualLabel.hidden = false;
+      manual.required = true;
+      hint.textContent = `Không tải được danh sách đối tượng: ${error.message}`;
+    }
+  }
+
+  function targetCode() {
+    const select = $('v029RecordTargetSelect');
+    const manual = $('v029RecordTargetManual');
+    return select && !select.hidden ? select.value.trim() : (manual?.value || '').trim();
   }
 
   function renderMembers() {
@@ -225,7 +270,7 @@
     tabButton.dataset.b43Tab = 'scoring';
     tabs.append(tabButton);
     panel = make('section', { id: 'b43-scoring', className: 'b43page panel', hidden: true });
-    panel.innerHTML = `<h2>Ghi nhận thi đua V0.2.9</h2><p>Nhập dữ liệu và minh chứng theo phân công. Màn hình này chưa tính điểm tổng hợp, chưa chạy công thức và chưa xếp hạng.</p><p id="v029ScoringNotice" role="status"></p><div class="v029-scoring-grid"><section class="v029-card"><h3>Phân công người ghi nhận</h3><p class="v029-help">Chỉ quản trị trường được tạo phân công. Người ghi nhận chỉ nhập trong phạm vi còn hiệu lực.</p><form id="v029AssignmentForm"><label>Người ghi nhận<select id="v029AssignmentMember" required></select></label><label>Mảng thi đua<select id="v029AssignmentArea" required></select></label><fieldset><legend>Đối tượng</legend><label><input type="radio" name="v029AssignmentTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029AssignmentTarget" value="class"> Tập thể / lớp</label></fieldset><label>Phạm vi mã đối tượng (tùy chọn)<input id="v029AssignmentScope" maxlength="120" placeholder="Ví dụ: 10C1 hoặc để trống cho toàn mảng"></label><div class="v029-inline-fields"><label>Từ ngày<input id="v029AssignmentFrom" type="date"></label><label>Đến ngày<input id="v029AssignmentTo" type="date"></label></div><label>Ghi chú<textarea id="v029AssignmentNote" maxlength="1000" rows="2"></textarea></label><button type="submit">＋ Tạo phân công</button></form><div id="v029AssignmentList" class="v029-scroll-list"></div></section><section class="v029-card"><h3>Tạo bản ghi ghi nhận</h3><form id="v029RecordForm"><label>Mảng thi đua<select id="v029RecordArea" required></select></label><label>Tiêu chí<select id="v029RecordCriterion" required></select></label><p id="v029CriterionHint" class="v029-hint"></p><fieldset><legend>Đối tượng được ghi nhận</legend><label><input type="radio" name="v029RecordTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029RecordTarget" value="class"> Tập thể / lớp</label></fieldset><label>Mã đối tượng<input id="v029RecordTargetCode" required maxlength="120" placeholder="Mã hồ sơ học sinh hoặc mã lớp"></label><div class="v029-inline-fields"><label>Chu kỳ<select id="v029RecordCycle" required><option value="week">Tuần</option><option value="month">Tháng</option><option value="semester">Học kỳ</option><option value="year">Năm học</option></select></label><label>Ngày ghi nhận<input id="v029RecordDate" type="date" required></label></div><label>Giá trị thực tế (chỉ dùng cho điểm linh hoạt)<input id="v029RecordValue" type="number" step="0.01" placeholder="Để trống nếu tiêu chí cố định"></label><label>Nội dung ghi nhận<textarea id="v029RecordContent" maxlength="2000" rows="3"></textarea></label><label>Minh chứng (mỗi dòng một URL hoặc mã tài liệu)<textarea id="v029RecordEvidence" rows="2"></textarea></label><label>Mã tham chiếu (tùy chọn)<input id="v029RecordReference" maxlength="120"></label><button type="submit">＋ Lưu bản ghi</button></form><div id="v029RecordList" class="v029-scroll-list"></div></section></div>`;
+    panel.innerHTML = `<h2>Ghi nhận thi đua V0.2.9</h2><p>Nhập dữ liệu và minh chứng theo phân công. Màn hình này chưa tính điểm tổng hợp, chưa chạy công thức và chưa xếp hạng.</p><p id="v029ScoringNotice" role="status"></p><div class="v029-scoring-grid"><section class="v029-card"><h3>Phân công người ghi nhận</h3><p class="v029-help">Chỉ quản trị trường được tạo phân công. Người ghi nhận chỉ nhập trong phạm vi còn hiệu lực.</p><form id="v029AssignmentForm"><label>Người ghi nhận<select id="v029AssignmentMember" required></select></label><label>Mảng thi đua<select id="v029AssignmentArea" required></select></label><fieldset><legend>Đối tượng</legend><label><input type="radio" name="v029AssignmentTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029AssignmentTarget" value="class"> Tập thể / lớp</label></fieldset><label>Phạm vi mã đối tượng (tùy chọn)<input id="v029AssignmentScope" maxlength="120" placeholder="Ví dụ: 10C1 hoặc để trống cho toàn mảng"></label><div class="v029-inline-fields"><label>Từ ngày<input id="v029AssignmentFrom" type="date"></label><label>Đến ngày<input id="v029AssignmentTo" type="date"></label></div><label>Ghi chú<textarea id="v029AssignmentNote" maxlength="1000" rows="2"></textarea></label><button type="submit">＋ Tạo phân công</button></form><div id="v029AssignmentList" class="v029-scroll-list"></div></section><section class="v029-card"><h3>Tạo bản ghi ghi nhận</h3><form id="v029RecordForm"><label>Mảng thi đua<select id="v029RecordArea" required></select></label><label>Tiêu chí<select id="v029RecordCriterion" required></select></label><p id="v029CriterionHint" class="v029-hint"></p><fieldset><legend>Đối tượng được ghi nhận</legend><label><input type="radio" name="v029RecordTarget" value="student" checked> Cá nhân</label><label><input type="radio" name="v029RecordTarget" value="class"> Tập thể / lớp</label></fieldset><label>Đối tượng được chọn<select id="v029RecordTargetSelect" required></select></label><label id="v029RecordTargetManualLabel" hidden>Nhập mã đối tượng<input id="v029RecordTargetManual" maxlength="120" placeholder="Mã hồ sơ học sinh hoặc mã lớp"></label><p id="v029RecordTargetHint" class="v029-hint"></p><div class="v029-inline-fields"><label>Chu kỳ<select id="v029RecordCycle" required><option value="week">Tuần</option><option value="month">Tháng</option><option value="semester">Học kỳ</option><option value="year">Năm học</option></select></label><label>Ngày ghi nhận<input id="v029RecordDate" type="date" required></label></div><label>Giá trị thực tế (chỉ dùng cho điểm linh hoạt)<input id="v029RecordValue" type="number" step="0.01" placeholder="Để trống nếu tiêu chí cố định"></label><label>Nội dung ghi nhận<textarea id="v029RecordContent" maxlength="2000" rows="3"></textarea></label><label>Minh chứng (mỗi dòng một URL hoặc mã tài liệu)<textarea id="v029RecordEvidence" rows="2"></textarea></label><label>Mã tham chiếu (tùy chọn)<input id="v029RecordReference" maxlength="120"></label><button type="submit">＋ Lưu bản ghi</button></form><div id="v029RecordList" class="v029-scroll-list"></div></section></div>`;
     host.append(panel);
     $('v029RecordDate').value = new Date().toISOString().slice(0, 10);
     $('v029AssignmentFrom').value = new Date().toISOString().slice(0, 10);
@@ -234,6 +279,7 @@
     $('v024Tab')?.addEventListener('click', () => { panel.hidden = true; });
     $('v029RecordArea').onchange = fillCriteriaOptions;
     $('v029RecordCriterion').onchange = syncCriterionHint;
+    document.querySelectorAll('input[name="v029RecordTarget"]').forEach(input => { input.addEventListener('change', loadTargets); });
     $('v029AssignmentForm').onsubmit = async event => {
       event.preventDefault();
       try {
@@ -264,7 +310,7 @@
           mang_id: $('v029RecordArea').value,
           tieu_chi_id: criterion.id,
           doi_tuong: target,
-          doi_tuong_ma: $('v029RecordTargetCode').value.trim(),
+          doi_tuong_ma: targetCode(),
           chu_ky: $('v029RecordCycle').value,
           ngay_ghi_nhan: $('v029RecordDate').value,
           gia_tri_thuc_te: criterion.che_do_diem === 'flexible' ? $('v029RecordValue').value : '',
