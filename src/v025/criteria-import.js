@@ -128,6 +128,40 @@
     $('v025ImportNotice').textContent = `Đã đọc ${preview.length} dòng; hợp lệ ${valid}, lỗi ${preview.length - valid}.`;
   }
 
+  async function downloadTemplate() {
+    try {
+      const XLSX = await loadXlsx();
+      const headers = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem', 'chu_ky'];
+      const sample = {
+        ma_mang: 'NN',
+        ten_mang: 'Nề nếp',
+        ma_tieu_chi: 'NN-01',
+        ten: 'Đi học đúng giờ',
+        doi_tuong: 'student',
+        diem: 1,
+        chu_ky: 'week,month',
+      };
+      const sheet = XLSX.utils.json_to_sheet([sample], { header: headers });
+      const guide = XLSX.utils.aoa_to_sheet([
+        ['Cột', 'Quy tắc'],
+        ['ma_mang', 'Mã mảng thi đua, bắt buộc'],
+        ['ten_mang', 'Tên mảng thi đua, bắt buộc'],
+        ['ma_tieu_chi', 'Mã tiêu chí, bắt buộc'],
+        ['ten', 'Tên tiêu chí, bắt buộc'],
+        ['doi_tuong', 'Chỉ dùng student hoặc class'],
+        ['diem', 'Số điểm từ -100000 đến 100000'],
+        ['chu_ky', 'week, month, semester hoặc year; nhiều giá trị cách nhau bằng dấu phẩy'],
+      ]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, 'TieuChi');
+      XLSX.utils.book_append_sheet(workbook, guide, 'HuongDan');
+      XLSX.writeFile(workbook, 'mau_nhap_tieu_chi_thi_dua_v0.2.6.xlsx');
+      $('v025ImportNotice').textContent = 'Đã tải file mẫu Excel.';
+    } catch (error) {
+      $('v025ImportNotice').textContent = error.message;
+    }
+  }
+
   async function previewFile() {
     const file = $('v025Excel').files[0];
     if (!file) {
@@ -201,8 +235,10 @@
   const box = document.createElement('fieldset');
   box.id = 'v025ImportBox';
   box.hidden = $('v024Kind').value !== 'tieuchi';
-  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem, chu_ky. Có thể nhập nhiều chu kỳ bằng dấu phẩy.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025PreviewRows" class="b43list"></div>';
+  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem, chu_ky. Có thể nhập nhiều chu kỳ bằng dấu phẩy.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">Tải file mẫu Excel</button><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025PreviewRows" class="b43list"></div>';
   $('v024Form').after(box);
+  $('v025Template').innerHTML = '<span aria-hidden="true">⇩</span><span>Tải file mẫu Excel</span>';
+  $('v025Template').classList.add('v024-action');
   $('v025Preview').innerHTML = '<span aria-hidden="true">⌕</span><span>Xem trước Excel</span>';
   $('v025Preview').classList.add('v024-action');
   $('v025Import').innerHTML = '<span aria-hidden="true">✓</span><span>Ghi các dòng hợp lệ</span>';
@@ -211,5 +247,6 @@
   $('v024Kind').addEventListener('change', () => window.edunexaSyncV025Import($('v024Kind').value));
   window.edunexaSyncV025Import($('v024Kind').value);
   $('v025Preview').onclick = previewFile;
+  $('v025Template').onclick = downloadTemplate;
   $('v025Import').onclick = importRows;
 })();
