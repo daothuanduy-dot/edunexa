@@ -55,7 +55,7 @@
     ma_tieu_chi: ['ma_tieu_chi', 'ma_tieu_chi_thi_dua', 'ma_criteria'],
     ten: ['ten', 'ten_tieu_chi', 'tieu_chi'],
     doi_tuong: ['doi_tuong', 'ap_dung'],
-    diem: ['diem', 'diem_thuong_tru'],
+    diem_gioi_han: ['diem_gioi_han', 'gioi_han_diem', 'diem_toi_da', 'diem'],
     chu_ky: ['chu_ky', 'chu_ky_danh_gia', 'ky_danh_gia'],
   };
 
@@ -78,14 +78,14 @@
         ma: value('ma_tieu_chi'),
         ten: value('ten'),
         doi_tuong: ['class', 'lop', 'tap_the'].includes(target) ? 'class' : ['student', 'ca_nhan', 'canhan'].includes(target) ? 'student' : '',
-        diem: Number(value('diem').replace(',', '.')),
+        diem_gioi_han: Number(value('diem_gioi_han').replace(',', '.')),
         chu_ky: value('chu_ky').split(/[,;|\s]+/).map(normalize).filter(Boolean),
         loi: [],
       };
       if (!item.ma_mang || !item.ten_mang) item.loi.push('Thiếu mã hoặc tên mảng');
       if (!item.ma || !item.ten) item.loi.push('Thiếu mã hoặc tên tiêu chí');
       if (!item.doi_tuong) item.loi.push('Đối tượng phải là student hoặc class');
-      if (!Number.isFinite(item.diem) || item.diem < -100000 || item.diem > 100000) item.loi.push('Điểm không hợp lệ');
+      if (!Number.isFinite(item.diem_gioi_han) || item.diem_gioi_han === 0 || item.diem_gioi_han < -100000 || item.diem_gioi_han > 100000) item.loi.push('Điểm giới hạn phải khác 0 và nằm trong -100000 đến 100000');
       if (!item.chu_ky.length || item.chu_ky.some(cycle => !['week', 'month', 'semester', 'year'].includes(cycle))) item.loi.push('Chu kỳ không hợp lệ');
       const duplicateKey = `${item.ma_mang}:${item.ma}`.toLowerCase();
       if (seen.has(duplicateKey)) item.loi.push('Trùng trong tệp');
@@ -116,7 +116,7 @@
       row.className = item.loi.length ? 'school v025-preview-invalid' : 'school';
       row.append(
         Object.assign(document.createElement('strong'), { textContent: `Dòng ${item.row}: ${item.ma} · ${item.ten}` }),
-        Object.assign(document.createElement('small'), { textContent: item.loi.length ? item.loi.join('; ') : `${item.ma_mang} · ${item.doi_tuong} · ${item.diem} · ${item.chu_ky.join(', ')}` }),
+        Object.assign(document.createElement('small'), { textContent: item.loi.length ? item.loi.join('; ') : `${item.ma_mang} · ${item.doi_tuong} · giới hạn ${item.diem_gioi_han} · ${item.chu_ky.join(', ')}` }),
       );
       root.append(row);
     }
@@ -128,9 +128,9 @@
   function downloadInvalidReport() {
     const invalid = preview.filter(item => item.loi.length);
     if (!invalid.length) return;
-    const headers = ['dong', 'ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem', 'chu_ky', 'loi'];
+    const headers = ['dong', 'ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem_gioi_han', 'chu_ky', 'loi'];
     const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const csv = [headers, ...invalid.map(item => [item.row, item.ma_mang, item.ten_mang, item.ma, item.ten, item.doi_tuong, item.diem, item.chu_ky.join(','), item.loi.join('; ')])]
+    const csv = [headers, ...invalid.map(item => [item.row, item.ma_mang, item.ten_mang, item.ma, item.ten, item.doi_tuong, item.diem_gioi_han, item.chu_ky.join(','), item.loi.join('; ')])]
       .map(row => row.map(csvCell).join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
@@ -143,14 +143,14 @@
   async function downloadTemplate() {
     try {
       const XLSX = await loadXlsx();
-      const headers = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem', 'chu_ky'];
-      const sample = { ma_mang: 'NN', ten_mang: 'Nề nếp', ma_tieu_chi: 'NN-01', ten: 'Đi học đúng giờ', doi_tuong: 'student', diem: 1, chu_ky: 'week,month' };
+      const headers = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem_gioi_han', 'chu_ky'];
+      const sample = { ma_mang: 'NN', ten_mang: 'Nề nếp', ma_tieu_chi: 'NN-01', ten: 'Đi học đúng giờ', doi_tuong: 'student', diem_gioi_han: 1, chu_ky: 'week,month' };
       const sheet = XLSX.utils.json_to_sheet([sample], { header: headers });
-      const guide = XLSX.utils.aoa_to_sheet([['Cột', 'Quy tắc'], ['ma_mang', 'Mã mảng thi đua, bắt buộc'], ['ten_mang', 'Tên mảng thi đua, bắt buộc'], ['ma_tieu_chi', 'Mã tiêu chí, bắt buộc'], ['ten', 'Tên tiêu chí, bắt buộc'], ['doi_tuong', 'Chỉ dùng student hoặc class'], ['diem', 'Số điểm từ -100000 đến 100000'], ['chu_ky', 'week, month, semester hoặc year']]);
+      const guide = XLSX.utils.aoa_to_sheet([['Cột', 'Quy tắc'], ['ma_mang', 'Mã mảng thi đua, bắt buộc'], ['ten_mang', 'Tên mảng thi đua, bắt buộc'], ['ma_tieu_chi', 'Mã tiêu chí, bắt buộc'], ['ten', 'Tên tiêu chí, bắt buộc'], ['doi_tuong', 'Chỉ dùng student hoặc class'], ['diem_gioi_han', 'Giới hạn điểm, không phải điểm chấm cố định; từ -100000 đến 100000 và khác 0'], ['chu_ky', 'week, month, semester hoặc year']]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, 'TieuChi');
       XLSX.utils.book_append_sheet(workbook, guide, 'HuongDan');
-      XLSX.writeFile(workbook, 'mau_nhap_tieu_chi_thi_dua_v0.2.7.xlsx');
+      XLSX.writeFile(workbook, 'mau_nhap_tieu_chi_thi_dua_v0.2.8.xlsx');
       $('v025ImportNotice').textContent = 'Đã tải file mẫu Excel.';
     } catch (error) { $('v025ImportNotice').textContent = error.message; }
   }
@@ -196,7 +196,7 @@
             areaByCode.set(item.ma_mang.toLowerCase(), area);
           }
           if (criterionByCode.has(item.ma.toLowerCase())) { skipped += 1; skippedRows.push(`Dòng ${item.row}: mã tiêu chí ${item.ma} đã tồn tại, không ghi trùng.`); continue; }
-          await schoolRequest('tieuchi_create', { mang_id: area.id, ma: item.ma, ten: item.ten, doi_tuong: item.doi_tuong, diem: item.diem, chu_ky: item.chu_ky });
+          await schoolRequest('tieuchi_create', { mang_id: area.id, ma: item.ma, ten: item.ten, doi_tuong: item.doi_tuong, diem: item.diem_gioi_han, diem_gioi_han: item.diem_gioi_han, chu_ky: item.chu_ky });
           criterionByCode.add(item.ma.toLowerCase());
           created += 1;
         } catch (error) { errors.push(`Dòng ${item.row}: ${error.message}`); }
@@ -216,7 +216,7 @@
   const box = document.createElement('fieldset');
   box.id = 'v025ImportBox';
   box.hidden = $('v024Kind').value !== 'tieuchi';
-  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem, chu_ky.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">Tải file mẫu Excel</button><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025InvalidBox" class="v025-invalid-box" hidden><strong>Dòng không hợp lệ</strong><button id="v025InvalidDownload" type="button" class="outline">Tải báo cáo lỗi CSV</button><div id="v025InvalidRows" class="v025-invalid-list"></div></div><div id="v025PreviewRows" class="b43list"></div>';
+  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem_gioi_han, chu_ky. Điểm giới hạn chỉ xác định mức tối đa/tối thiểu; điểm chấm thực tế nhập ở bước ghi nhận.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">Tải file mẫu Excel</button><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025InvalidBox" class="v025-invalid-box" hidden><strong>Dòng không hợp lệ</strong><button id="v025InvalidDownload" type="button" class="outline">Tải báo cáo lỗi CSV</button><div id="v025InvalidRows" class="v025-invalid-list"></div></div><div id="v025PreviewRows" class="b43list"></div>';
   $('v024Form').after(box);
   $('v025Template').onclick = downloadTemplate;
   $('v025Preview').onclick = previewFile;

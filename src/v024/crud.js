@@ -26,7 +26,7 @@
   const fields = {
     hoso: [['ho_ten', 'Họ tên'], ['ngay_sinh', 'Ngày sinh'], ['lop', 'Lớp'], ['email', 'Email']],
     mang: [['ma', 'Mã mảng'], ['ten', 'Tên mảng'], ['mo_ta', 'Mô tả']],
-    tieuchi: [['ma', 'Mã tiêu chí'], ['ten', 'Tên tiêu chí'], ['diem', 'Điểm (+/-)']],
+    tieuchi: [['ma', 'Ma tieu chi'], ['ten', 'Ten tieu chi'], ['diem_gioi_han', 'Gioi han diem']],
   };
 
   function setTabActive(v024Active) {
@@ -50,7 +50,7 @@
     if (!response.ok) {
       if (response.status === 400 && result.error === 'Thao tác không hợp lệ') {
         throw Error(hanh_dong === 'tieuchi_versions'
-          ? 'Backend chưa triển khai tính năng tiêu chí V0.2.7. Hãy deploy Edge Function mới trước.'
+          ? 'Backend chưa triển khai tính năng tiêu chí V0.2.8. Hãy deploy Edge Function mới trước.'
           : 'Backend chưa triển khai action V0.2.4. Hãy deploy Edge Function V0.2.4 trước.');
       }
       throw Error(result.error || 'Lỗi xử lý yêu cầu');
@@ -68,6 +68,99 @@
       if (!school) throw Error('Không xác định được trường');
     }
     return request(action, { truong_id: school.id, du_lieu: data });
+  }
+
+  let formulaBox = null;
+  let formulaAreaSelect = null;
+  let formulaModeSelect = null;
+  let formulaMinInput = null;
+  let formulaMaxInput = null;
+  let formulaNotice = null;
+
+  function ensureFormulaBox() {
+    if (formulaBox) return;
+    formulaBox = el('section', { id: 'v028FormulaBox', className: 'v024-formula-panel', hidden: true });
+    formulaBox.append(el('h3', { textContent: 'Cau hinh cong thuc thi dua cho mang' }));
+    formulaBox.append(el('p', { textContent: 'Cong thuc thuoc mang thi dua va tong hop diem thuc te cua cac tieu chi con. Khong gan cong thuc vao tieu chi.' }));
+    const areaLabel = el('label', { textContent: 'Mang thi dua' });
+    formulaAreaSelect = el('select', { id: 'v028FormulaArea' });
+    areaLabel.append(formulaAreaSelect);
+    formulaBox.append(areaLabel);
+    const modeLabel = el('label', { textContent: 'Kieu cong thuc' });
+    formulaModeSelect = el('select', { id: 'v028FormulaMode' });
+    formulaModeSelect.append(el('option', { value: 'sum_criteria', textContent: 'Tong diem cac tieu chi' }));
+    formulaModeSelect.append(el('option', { value: 'clamp_sum', textContent: 'Tong diem co gioi han' }));
+    modeLabel.append(formulaModeSelect);
+    formulaBox.append(modeLabel);
+    const range = el('div', { className: 'v028-formula-range' });
+    const minLabel = el('label', { textContent: 'Diem san (tuy chon)' });
+    formulaMinInput = el('input', { id: 'v028FormulaMin', type: 'number', step: '0.01', placeholder: 'De trong neu khong gioi han' });
+    minLabel.append(formulaMinInput);
+    const maxLabel = el('label', { textContent: 'Diem tran (tuy chon)' });
+    formulaMaxInput = el('input', { id: 'v028FormulaMax', type: 'number', step: '0.01', placeholder: 'De trong neu khong gioi han' });
+    maxLabel.append(formulaMaxInput);
+    range.append(minLabel, maxLabel);
+    formulaBox.append(range);
+    const save = el('button', { type: 'button', className: 'outline', textContent: 'Luu cong thuc cho mang' });
+    formulaNotice = el('p', { role: 'status' });
+    formulaBox.append(save, formulaNotice);
+    formulaAreaSelect.onchange = loadAreaFormula;
+    formulaModeSelect.onchange = syncFormulaRange;
+    save.onclick = async () => {
+      const areaId = formulaAreaSelect.value;
+      if (!areaId) { formulaNotice.textContent = 'Hay tao mang truoc khi cau hinh cong thuc.'; return; }
+      const mode = formulaModeSelect.value;
+      let ast = { op: 'sum_criteria' };
+      if (mode === 'clamp_sum') {
+        const min = Number(formulaMinInput.value);
+        const max = Number(formulaMaxInput.value);
+        if (!Number.isFinite(min) || !Number.isFinite(max) || min > max) { formulaNotice.textContent = 'Diem san/tran khong hop le.'; return; }
+        ast = { op: 'clamp', min, max, expr: { op: 'sum_criteria' } };
+      }
+      save.disabled = true;
+      try { const result = await api('mang_formula_save', { id: areaId, ast }); formulaNotice.textContent = `Da luu cong thuc phien ban ${result.phien_ban}.`; }
+      catch (error) { formulaNotice.textContent = error.message; }
+      finally { save.disabled = false; }
+    };
+    $('v024Form').after(formulaBox);
+  }
+
+  function syncFormulaRange() {
+    const enabled = formulaModeSelect?.value === 'clamp_sum';
+    if (formulaMinInput) formulaMinInput.disabled = !enabled;
+    if (formulaMaxInput) formulaMaxInput.disabled = !enabled;
+  }
+
+  async function loadAreaFormula() {
+    if (!formulaAreaSelect?.value) return;
+    formulaNotice.textContent = 'Dang tai cong thuc...';
+    try {
+      const result = await api('mang_formula_get', { id: formulaAreaSelect.value });
+      const ast = result?.ast || { op: 'sum_criteria' };
+      if (ast.op === 'clamp' && ast.expr?.op === 'sum_criteria') {
+        formulaModeSelect.value = 'clamp_sum';
+        formulaMinInput.value = ast.min ?? '';
+        formulaMaxInput.value = ast.max ?? '';
+      } else {
+        formulaModeSelect.value = 'sum_criteria';
+        formulaMinInput.value = '';
+        formulaMaxInput.value = '';
+      }
+      syncFormulaRange();
+      formulaNotice.textContent = result?.phien_ban ? `Dang xem phien ban ${result.phien_ban}.` : 'Chua co cong thuc; mac dinh tong diem cac tieu chi.';
+    } catch (error) { formulaNotice.textContent = error.message; }
+  }
+
+  function syncFormulaBox() {
+    ensureFormulaBox();
+    const visible = $('v024Kind').value === 'mang';
+    formulaBox.hidden = !visible;
+    if (!visible) return;
+    const current = formulaAreaSelect.value;
+    formulaAreaSelect.replaceChildren();
+    for (const area of areas) formulaAreaSelect.append(el('option', { value: area.id, textContent: `${area.ma} - ${area.ten}` }));
+    formulaAreaSelect.value = areas.some(area => area.id === current) ? current : (areas[0]?.id || '');
+    loadAreaFormula();
   }
 
   function setupKindTabs() {
@@ -178,6 +271,7 @@
       window.edunexaSyncV025Import?.(kind);
     }
     window.edunexaSyncV024Kind = syncKindControls;
+    ensureFormulaBox();
     syncKindControls();
   }
 
@@ -239,7 +333,7 @@
       for (const version of versions) {
         const item = el('article', { className: 'v024-history-item' });
         const title = el('strong', { textContent: `Phiên bản ${version.phien_ban} · ${version.ly_do}` });
-        const details = el('small', { textContent: `${version.ten} · ${version.diem} điểm · ${(version.chu_ky || []).join(', ')} · ${version.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp'}` });
+        const details = el('small', { textContent: `${version.ten} · ${version.diem_gioi_han ?? version.diem} điểm · ${(version.chu_ky || []).join(', ')} · ${version.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp'}` });
         const time = el('small', { textContent: version.ngay_tao ? new Date(version.ngay_tao).toLocaleString('vi-VN') : '' });
         item.append(title, details, time);
         body.append(item);
@@ -282,11 +376,11 @@
       const label = el('label', { textContent: title });
       const input = el('input', {
         id: `v024_${key}`,
-        value: row[key] ?? '',
+        value: row[key] ?? (key === 'diem_gioi_han' ? row.diem : ''),
         required: key === 'ho_ten' || key === 'ma' || key === 'ten',
       });
       if (key === 'ngay_sinh') input.type = 'date';
-      if (key === 'diem') { input.type = 'number'; input.step = '0.01'; }
+      if (key === 'diem_gioi_han') { input.type = 'number'; input.step = '0.01'; input.min = '-100000'; input.max = '100000'; input.placeholder = 'Gioi han, khong phai diem cham co dinh'; }
       label.append(input);
       root.append(label);
     }
@@ -342,7 +436,7 @@
         ? [type, row.ma_dinh_danh, row.lop, row.email, row.ngay_sinh].filter(Boolean).join(' · ')
         : kind === 'mang'
           ? [row.ma, `Số tiêu chí: ${childCount}`, row.mo_ta].filter(Boolean).join(' · ')
-          : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', row.diem, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
+          : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', `gi?i h?n ${row.diem_gioi_han ?? row.diem}`, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
       detail.append(el('strong', { textContent: title }), el('small', { textContent: summary }));
       if (kind === 'tieuchi') {
         detail.append(el('span', { className: 'v024-row-parent', textContent: `Mảng cha: ${areaName(row.mang_id)}` }));
@@ -411,6 +505,7 @@
       syncAreaFilterOptions();
       renderForm();
       renderRows();
+      syncFormulaBox();
     } catch (error) { note(error.message); }
   }
 
@@ -435,6 +530,7 @@
     const id = $('v024Id').value;
     const data = {};
     for (const [key] of fields[kind]) data[key] = $(`v024_${key}`).value;
+    if (kind === 'tieuchi') data.diem = data.diem_gioi_han;
     if (kind === 'tieuchi') {
       data.mang_id = $('v024_mang_id').value;
       data.doi_tuong = $('v024_doi_tuong').value;
