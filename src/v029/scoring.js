@@ -60,6 +60,27 @@
     return state.criteria.find(item => item.id === $('v029RecordCriterion')?.value);
   }
 
+  function normalizeSearchText(value) {
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/đ/gi, 'd')
+      .toLocaleLowerCase('vi')
+      .trim();
+  }
+
+  function matchesStudentSearch(student, query) {
+    if (!query) return true;
+    const name = normalizeSearchText(student.ho_ten);
+    const normalizedQuery = normalizeSearchText(query);
+    const initials = name.split(/\s+/).filter(Boolean).map(word => word[0]).join('');
+    const initialsQuery = normalizedQuery.replace(/\s+/g, '');
+    const code = normalizeSearchText(student.ma_dinh_danh);
+    return name.includes(normalizedQuery) ||
+      initials.startsWith(initialsQuery) ||
+      code.includes(normalizedQuery);
+  }
+
   function renderAreaOptions() {
     const selects = [$('v029AssignmentArea'), $('v029RecordArea')].filter(Boolean);
     for (const select of selects) {
@@ -77,6 +98,7 @@
     const areaId = $('v029RecordArea').value;
     const previous = select.value;
     select.replaceChildren();
+    select.append(make('option', { value: '', textContent: 'Chọn hình thức ghi nhận...', disabled: true, selected: true }));
     const targetType = selectedValue('v029RecordTarget');
     for (const criterion of state.criteria.filter(item => item.mang_id === areaId && item.doi_tuong === targetType)) {
       const mode = criterion.che_do_diem === 'flexible'
@@ -114,7 +136,6 @@
     }
     const target = document.querySelector(`input[name="v029RecordTarget"][value="${criterion.doi_tuong}"]`);
     if (target) target.checked = true;
-    void loadTargets();
   }
 
   async function loadTargets() {
@@ -130,6 +151,14 @@
       const items = Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []);
       state.targets[targetType] = items;
       select.replaceChildren();
+      if (items.length) {
+        select.append(make('option', {
+          value: '',
+          textContent: targetType === 'student' ? 'Chọn học sinh...' : 'Chọn lớp...',
+          disabled: true,
+          selected: true,
+        }));
+      }
       for (const item of items) {
         const code = targetType === 'student' ? item.ma_dinh_danh : item.ma_lop;
         const label = targetType === 'student'
@@ -176,7 +205,7 @@
     if (!select || select.hidden) { setNotice('Chưa có danh sách học sinh để đối chiếu mã QR.', true); return; }
     if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
       const code = prompt('Nhập mã định danh trong QR học sinh:');
-      if (code && [...select.options].some(option => option.value === code.trim())) { select.value = code.trim(); setNotice('Đã chọn học sinh từ mã QR.', false); }
+      if (code && [...select.options].some(option => option.value === code.trim())) { select.value = code.trim(); setNotice('Đã chọn học sinh từ mã QR.', false); renderWorkflow(); }
       else if (code) setNotice('Mã QR không có trong danh sách học sinh đang lọc.', true);
       return;
     }
@@ -195,6 +224,7 @@
             select.value = code;
             stopQrScanner();
             setNotice('Đã chọn học sinh từ mã QR.', false);
+            renderWorkflow();
             return;
           }
         } catch (error) { setNotice(`Không đọc được QR: ${error.message}`, true); stopQrScanner(); return; }
@@ -220,6 +250,8 @@
     if ($('v029ClassSearch')) $('v029ClassSearch').value = '';
     if ($('v029StudentSearch')) $('v029StudentSearch').value = '';
     if ($('v029CriterionSearch')) $('v029CriterionSearch').value = '';
+    $('v029RecordTargetSelect')?.replaceChildren();
+    if ($('v029RecordTargetManual')) $('v029RecordTargetManual').value = '';
     fillCriteriaOptions();
     renderWorkflow();
     void loadTargets();
@@ -291,7 +323,9 @@
       (!state.filters.grade || gradeOf(className) === state.filters.grade) &&
       (!state.filters.search || className.toLowerCase().includes(state.filters.search.toLowerCase()))
     );
-    if (targetType === 'class' && !visibleClasses.includes(state.filters.className)) state.filters.className = visibleClasses[0] || '';
+    if (targetType === 'class' && state.filters.className && !visibleClasses.includes(state.filters.className)) {
+      state.filters.className = '';
+    }
     if (classRoot) {
       classRoot.replaceChildren();
       for (const className of visibleClasses) {
@@ -303,10 +337,11 @@
     }
     if (targetSelect && targetType === 'student') {
       const previous = targetSelect.value;
-      const query = state.filters.student.trim().toLocaleLowerCase('vi');
-      const available = items.filter(item => !state.filters.className || item.lop === state.filters.className);
-      const visible = available.filter(item =>
-        !query || `${item.ho_ten || ''} ${item.ma_dinh_danh || ''}`.toLocaleLowerCase('vi').includes(query));
+      const query = state.filters.student;
+      const available = items.filter(item =>
+        (!state.filters.grade || gradeOf(item.lop) === state.filters.grade) &&
+        (!state.filters.className || item.lop === state.filters.className));
+      const visible = available.filter(item => matchesStudentSearch(item, query));
       targetSelect.replaceChildren();
       if (available.length) {
         targetSelect.append(make('option', { value: '', textContent: 'Chọn học sinh...', disabled: true, selected: true }));
@@ -327,10 +362,18 @@
     if (targetSelect && targetType === 'class') {
       const selectedClass = state.filters.className && visibleClasses.includes(state.filters.className)
         ? state.filters.className
-        : visibleClasses[0] || '';
+        : '';
       targetSelect.value = selectedClass;
       state.filters.className = selectedClass;
+      $('v029StudentCount').textContent = `${visibleClasses.length} lớp`;
     }
+    const targetCodeValue = targetCode();
+    const hasTarget = Boolean(targetCodeValue);
+    const targetStep = $('v029TargetStep');
+    const criteriaStep = $('v029CriteriaStep');
+    if (targetStep) targetStep.hidden = !targetType;
+    if (criteriaStep) criteriaStep.hidden = !hasTarget;
+    $('v029RecordForm').hidden = !hasTarget;
     renderCriteriaActions();
   }
 
@@ -423,6 +466,8 @@
       state.assignments = assignments.status === 'fulfilled' ? assignments.value : [];
       state.records = records.status === 'fulfilled' ? records.value : [];
       renderAreaOptions();
+      renderWorkflow();
+      void loadTargets();
       renderMembers();
       renderAssignments();
       renderRecords();
@@ -451,7 +496,7 @@
     tabs.append(tabButton);
     const scoringCard = make('article', { className: 'v029-dashboard-card', tabIndex: 0, role: 'button' }, [
       make('strong', { textContent: '⭐ Ghi nhận thi đua' }),
-      make('small', { textContent: 'Chọn khối, lớp, học sinh và lệnh ghi nhận' }),
+      make('small', { textContent: 'Chọn cá nhân hoặc tập thể, tìm đối tượng và ghi nhận tiêu chí' }),
       make('span', { textContent: 'Mở màn hình chấm điểm' }),
     ]);
     scoringCard.onclick = showPanel;
@@ -462,27 +507,47 @@
     host.append(panel);
     panel.querySelector('h2').classList.add('v029-page-title');
     const workflowSteps = panel.querySelectorAll('.v029-workflow .v029-step');
+    const modeStep = workflowSteps[2];
+    const gradeStep = workflowSteps[0];
+    const classStep = workflowSteps[1];
+    const criteriaStep = workflowSteps[3];
+    const targetStep = make('section', { id: 'v029TargetStep', className: 'v029-step' });
+    targetStep.append(make('h3', { textContent: '4. Chọn học sinh hoặc lớp' }));
+    const targetMode = $('v029RecordForm').querySelector('fieldset');
+    targetMode.hidden = true;
+    const targetSearch = make('input', { id: 'v029StudentSearch', type: 'search', placeholder: 'Nhập tên, chữ cái đầu (ví dụ: ttm) hoặc mã định danh...', autocomplete: 'off' });
+    const studentSearchLabel = make('label', { id: 'v029StudentSearchLabel', className: 'v029-search-label', textContent: 'Tìm học sinh' }, [targetSearch]);
+    targetStep.append(make('p', { className: 'v029-step-help', textContent: 'Có thể tìm theo tên đầy đủ, chữ cái đầu của họ tên (ví dụ: Trần Tuấn Minh → ttm) hoặc mã định danh.' }));
+    targetStep.append(studentSearchLabel);
+    const targetSelectLabel = $('v029RecordTargetSelect').closest('label');
+    targetSelectLabel.querySelector('select').setAttribute('aria-label', 'Chọn đối tượng');
+    targetStep.append(targetSelectLabel);
+    targetSelectLabel.append(make('small', { id: 'v029StudentCount', className: 'v029-muted' }));
+    targetStep.append($('v029RecordTargetManualLabel'), $('v029RecordTargetHint'));
+    const targetScanRow = criteriaStep.querySelector('.v029-scan-row');
+    targetStep.append(targetScanRow);
+    modeStep.querySelector('h3').textContent = '1. Chọn cá nhân hoặc tập thể';
+    gradeStep.querySelector('h3').textContent = '2. Chọn khối';
+    classStep.querySelector('h3').textContent = '3. Chọn lớp';
+    criteriaStep.id = 'v029CriteriaStep';
+    criteriaStep.querySelector('h3').textContent = '5. Chọn hình thức ghi nhận';
+    panel.querySelector('.v029-workflow').replaceChildren(modeStep, gradeStep, classStep, targetStep, criteriaStep);
+    criteriaStep.hidden = true;
+    $('v029RecordForm').hidden = true;
     const areaLabel = $('v029RecordArea').closest('label');
     const criterionLabel = $('v029RecordCriterion').closest('label');
-    workflowSteps[3].querySelector('h3').textContent = '4. Chọn mảng và tiêu chí';
-    workflowSteps[3].prepend(areaLabel);
+    criteriaStep.prepend(areaLabel);
     areaLabel.classList.add('v029-area-select');
     criterionLabel.hidden = true;
     $('v029RecordCriterion').required = false;
-    $('v029RecordForm').querySelector('fieldset').hidden = true;
     const criterionSearch = make('input', { id: 'v029CriterionSearch', type: 'search', placeholder: 'Tìm tiêu chí theo tên hoặc mã...', autocomplete: 'off', 'aria-label': 'Tìm tiêu chí' });
     const criterionToolbar = make('div', { className: 'v029-filter-toolbar' }, [
       criterionSearch,
       make('small', { id: 'v029CriterionCount', className: 'v029-muted' }),
     ]);
-    workflowSteps[3].insertBefore(criterionToolbar, workflowSteps[3].querySelector('.v029-scan-row'));
-    const studentSearch = make('input', { id: 'v029StudentSearch', type: 'search', placeholder: 'Tìm theo tên hoặc mã học sinh...', autocomplete: 'off' });
-    const studentSearchLabel = make('label', { id: 'v029StudentSearchLabel', className: 'v029-search-label', textContent: 'Tìm học sinh' }, [studentSearch]);
+    criteriaStep.insertBefore(criterionToolbar, criteriaStep.querySelector('.v029-scan-row'));
     studentSearchLabel.hidden = true;
-    $('v029RecordTargetSelect').closest('label').before(studentSearchLabel);
-    $('v029RecordTargetSelect').closest('label').append(make('small', { id: 'v029StudentCount', className: 'v029-muted' }));
     $('v029CriterionHint').classList.add('v029-wide-field');
-    $('v029RecordTargetHint').classList.add('v029-wide-field');
     $('v029RecordContent').closest('label').classList.add('v029-wide-field');
     $('v029RecordEvidence').closest('label').classList.add('v029-wide-field');
     $('v029RecordForm').querySelector('button[type="submit"]').classList.add('v029-wide-field');
@@ -509,11 +574,30 @@
     tabButton.onclick = showPanel;
     document.querySelectorAll('[data-b43-tab]').forEach(button => button.addEventListener('click', () => { if (button !== tabButton) panel.hidden = true; }));
     $('v024Tab')?.addEventListener('click', () => { panel.hidden = true; });
-    $('v029RecordArea').onchange = fillCriteriaOptions;
+    $('v029RecordArea').onchange = () => {
+      state.filters.grade = '';
+      state.filters.className = '';
+      state.filters.student = '';
+      $('v029StudentSearch').value = '';
+      $('v029RecordTargetSelect').replaceChildren();
+      $('v029RecordTargetManual').value = '';
+      fillCriteriaOptions();
+      void loadTargets();
+    };
     $('v029RecordCriterion').onchange = syncCriterionHint;
     $('v029CriterionSearch').oninput = event => { state.filters.criterion = event.target.value; renderCriteriaActions(); };
     $('v029StudentSearch').oninput = event => { state.filters.student = event.target.value; $('v029RecordTargetSelect').value = ''; renderWorkflow(); };
-    document.querySelectorAll('input[name="v029RecordTarget"]').forEach(input => { input.addEventListener('change', () => { state.filters.grade = ''; state.filters.className = ''; state.filters.student = ''; $('v029StudentSearch').value = ''; renderWorkflow(); void loadTargets(); }); });
+    $('v029RecordTargetManual').oninput = renderWorkflow;
+    document.querySelectorAll('input[name="v029RecordTarget"]').forEach(input => { input.addEventListener('change', () => {
+      state.filters.grade = '';
+      state.filters.className = '';
+      state.filters.student = '';
+      $('v029StudentSearch').value = '';
+      $('v029RecordTargetSelect').replaceChildren();
+      $('v029RecordTargetManual').value = '';
+      renderWorkflow();
+      void loadTargets();
+    }); });
     $('v029ModeStudent').onclick = () => setRecordMode('student');
     $('v029ModeClass').onclick = () => setRecordMode('class');
     $('v029ClassSearch').oninput = event => { state.filters.search = event.target.value.trim(); if (selectedValue('v029RecordTarget') === 'student') $('v029RecordTargetSelect').value = ''; renderWorkflow(); };
@@ -560,9 +644,14 @@
           minh_chung: evidence,
           ma_tham_chieu: $('v029RecordReference').value.trim(),
         });
+        const areaId = $('v029RecordArea').value;
+        const targetType = selectedValue('v029RecordTarget');
         event.target.reset();
+        $('v029RecordArea').value = areaId;
+        document.querySelector(`input[name="v029RecordTarget"][value="${targetType}"]`).checked = true;
         $('v029RecordDate').value = new Date().toISOString().slice(0, 10);
         renderAreaOptions();
+        renderWorkflow();
         await loadRecords();
         setNotice('Đã lưu bản ghi ghi nhận. Chưa tính điểm tổng hợp.');
       } catch (error) { setNotice(error.message, true); }
