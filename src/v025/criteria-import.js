@@ -13,38 +13,30 @@
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 
-  const request = async (hanh_dong, fields = {}) => {
+  async function request(action, fields = {}) {
     const { data: { session } } = await sb.auth.getSession();
     if (!session) throw Error('Chưa đăng nhập');
     const response = await fetch(`${cfg.url}/functions/v1/quan-tri-truong`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: cfg.publishableKey,
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ hanh_dong, ...fields }),
+      headers: { 'Content-Type': 'application/json', apikey: cfg.publishableKey, Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ hanh_dong: action, ...fields }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw Error(result.error || 'Không xử lý được yêu cầu');
     return result.du_lieu;
-  };
+  }
 
-  const currentSchool = async () => {
-    if (school) return school;
-    const context = await request('boi_canh');
-    const code = $('schoolCode').textContent.trim();
-    school = (context.schools || []).find(item => item.ma_truong === code);
-    if (!school) throw Error('Không xác định được trường');
-    return school;
-  };
+  async function schoolRequest(action, data = {}) {
+    if (!school) {
+      const context = await request('boi_canh');
+      const code = $('schoolCode').textContent.trim();
+      school = (context.schools || []).find(item => item.ma_truong === code);
+      if (!school) throw Error('Không xác định được trường');
+    }
+    return request(action, { truong_id: school.id, du_lieu: data });
+  }
 
-  const schoolRequest = async (action, data = {}) => {
-    const selected = await currentSchool();
-    return request(action, { truong_id: selected.id, du_lieu: data });
-  };
-
-  const loadXlsx = async () => {
+  async function loadXlsx() {
     if (window.XLSX) return window.XLSX;
     await new Promise((resolve, reject) => {
       const script = document.createElement('script');
@@ -55,7 +47,7 @@
     });
     if (!window.XLSX) throw Error('Không đọc được thư viện Excel');
     return window.XLSX;
-  };
+  }
 
   const aliases = {
     ma_mang: ['ma_mang', 'mang', 'ma_linh_vuc'],
@@ -67,21 +59,12 @@
     chu_ky: ['chu_ky', 'chu_ky_danh_gia', 'ky_danh_gia'],
   };
 
-  function mapHeaders(headerRow) {
-    const normalized = headerRow.map(normalize);
-    const result = {};
-    for (const [key, options] of Object.entries(aliases)) {
-      const index = normalized.findIndex(item => options.includes(item));
-      if (index >= 0) result[key] = index;
-    }
-    return result;
-  }
-
   function parseRows(rows) {
     if (rows.length < 2) throw Error('Tệp Excel chưa có dữ liệu');
-    const columns = mapHeaders(rows[0]);
-    const required = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem', 'chu_ky'];
-    const missing = required.filter(key => columns[key] === undefined);
+    const normalized = rows[0].map(normalize);
+    const columns = Object.fromEntries(Object.entries(aliases).map(([key, values]) => [key, normalized.findIndex(item => values.includes(item))]));
+    const required = Object.keys(aliases);
+    const missing = required.filter(key => columns[key] < 0);
     if (missing.length) throw Error(`Thiếu cột: ${missing.join(', ')}`);
 
     const seen = new Set();
@@ -99,8 +82,8 @@
         chu_ky: value('chu_ky').split(/[,;|\s]+/).map(normalize).filter(Boolean),
         loi: [],
       };
-      if (!item.ma_mang || !item.ten_mang) item.loi.push('Thiếu mã/tên mảng');
-      if (!item.ma || !item.ten) item.loi.push('Thiếu mã/tên tiêu chí');
+      if (!item.ma_mang || !item.ten_mang) item.loi.push('Thiếu mã hoặc tên mảng');
+      if (!item.ma || !item.ten) item.loi.push('Thiếu mã hoặc tên tiêu chí');
       if (!item.doi_tuong) item.loi.push('Đối tượng phải là student hoặc class');
       if (!Number.isFinite(item.diem) || item.diem < -100000 || item.diem > 100000) item.loi.push('Điểm không hợp lệ');
       if (!item.chu_ky.length || item.chu_ky.some(cycle => !['week', 'month', 'semester', 'year'].includes(cycle))) item.loi.push('Chu kỳ không hợp lệ');
@@ -113,10 +96,24 @@
 
   function renderPreview() {
     const root = $('v025PreviewRows');
+    const invalidRoot = $('v025InvalidRows');
+    const invalidBox = $('v025InvalidBox');
     root.replaceChildren();
+    invalidRoot.replaceChildren();
+    const invalid = preview.filter(item => item.loi.length);
+    invalidBox.hidden = !invalid.length;
+    for (const item of invalid) {
+      const row = document.createElement('article');
+      row.className = 'v025-invalid-row';
+      row.append(
+        Object.assign(document.createElement('strong'), { textContent: `Dòng ${item.row}: ${item.ma || '(chưa có mã)'} · ${item.ten || '(chưa có tên)'}` }),
+        Object.assign(document.createElement('small'), { textContent: item.loi.join('; ') }),
+      );
+      invalidRoot.append(row);
+    }
     for (const item of preview) {
       const row = document.createElement('div');
-      row.className = 'school';
+      row.className = item.loi.length ? 'school v025-preview-invalid' : 'school';
       row.append(
         Object.assign(document.createElement('strong'), { textContent: `Dòng ${item.row}: ${item.ma} · ${item.ten}` }),
         Object.assign(document.createElement('small'), { textContent: item.loi.length ? item.loi.join('; ') : `${item.ma_mang} · ${item.doi_tuong} · ${item.diem} · ${item.chu_ky.join(', ')}` }),
@@ -125,53 +122,43 @@
     }
     const valid = preview.filter(item => !item.loi.length).length;
     $('v025Import').hidden = !valid;
-    $('v025ImportNotice').textContent = `Đã đọc ${preview.length} dòng; hợp lệ ${valid}, lỗi ${preview.length - valid}.`;
+    $('v025ImportNotice').textContent = `Đã đọc ${preview.length} dòng; hợp lệ ${valid}, lỗi ${invalid.length}.`;
+  }
+
+  function downloadInvalidReport() {
+    const invalid = preview.filter(item => item.loi.length);
+    if (!invalid.length) return;
+    const headers = ['dong', 'ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem', 'chu_ky', 'loi'];
+    const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...invalid.map(item => [item.row, item.ma_mang, item.ten_mang, item.ma, item.ten, item.doi_tuong, item.diem, item.chu_ky.join(','), item.loi.join('; ')])]
+      .map(row => row.map(csvCell).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'bao_cao_dong_tieu_chi_khong_hop_le.csv';
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   async function downloadTemplate() {
     try {
       const XLSX = await loadXlsx();
       const headers = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem', 'chu_ky'];
-      const sample = {
-        ma_mang: 'NN',
-        ten_mang: 'Nề nếp',
-        ma_tieu_chi: 'NN-01',
-        ten: 'Đi học đúng giờ',
-        doi_tuong: 'student',
-        diem: 1,
-        chu_ky: 'week,month',
-      };
+      const sample = { ma_mang: 'NN', ten_mang: 'Nề nếp', ma_tieu_chi: 'NN-01', ten: 'Đi học đúng giờ', doi_tuong: 'student', diem: 1, chu_ky: 'week,month' };
       const sheet = XLSX.utils.json_to_sheet([sample], { header: headers });
-      const guide = XLSX.utils.aoa_to_sheet([
-        ['Cột', 'Quy tắc'],
-        ['ma_mang', 'Mã mảng thi đua, bắt buộc'],
-        ['ten_mang', 'Tên mảng thi đua, bắt buộc'],
-        ['ma_tieu_chi', 'Mã tiêu chí, bắt buộc'],
-        ['ten', 'Tên tiêu chí, bắt buộc'],
-        ['doi_tuong', 'Chỉ dùng student hoặc class'],
-        ['diem', 'Số điểm từ -100000 đến 100000'],
-        ['chu_ky', 'week, month, semester hoặc year; nhiều giá trị cách nhau bằng dấu phẩy'],
-      ]);
+      const guide = XLSX.utils.aoa_to_sheet([['Cột', 'Quy tắc'], ['ma_mang', 'Mã mảng thi đua, bắt buộc'], ['ten_mang', 'Tên mảng thi đua, bắt buộc'], ['ma_tieu_chi', 'Mã tiêu chí, bắt buộc'], ['ten', 'Tên tiêu chí, bắt buộc'], ['doi_tuong', 'Chỉ dùng student hoặc class'], ['diem', 'Số điểm từ -100000 đến 100000'], ['chu_ky', 'week, month, semester hoặc year']]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, 'TieuChi');
       XLSX.utils.book_append_sheet(workbook, guide, 'HuongDan');
-      XLSX.writeFile(workbook, 'mau_nhap_tieu_chi_thi_dua_v0.2.6.xlsx');
+      XLSX.writeFile(workbook, 'mau_nhap_tieu_chi_thi_dua_v0.2.7.xlsx');
       $('v025ImportNotice').textContent = 'Đã tải file mẫu Excel.';
-    } catch (error) {
-      $('v025ImportNotice').textContent = error.message;
-    }
+    } catch (error) { $('v025ImportNotice').textContent = error.message; }
   }
 
   async function previewFile() {
     const file = $('v025Excel').files[0];
-    if (!file) {
-      $('v025ImportNotice').textContent = 'Chọn tệp Excel trước.';
-      return;
-    }
-    if (!/\.xlsx?$/i.test(file.name) || file.size > 5 * 1024 * 1024) {
-      $('v025ImportNotice').textContent = 'Chỉ nhận XLS/XLSX tối đa 5 MB.';
-      return;
-    }
+    if (!file) { $('v025ImportNotice').textContent = 'Chọn tệp Excel trước.'; return; }
+    if (!/\.xlsx?$/i.test(file.name) || file.size > 5 * 1024 * 1024) { $('v025ImportNotice').textContent = 'Chỉ nhận XLS/XLSX tối đa 5 MB.'; return; }
     try {
       const XLSX = await loadXlsx();
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
@@ -181,6 +168,8 @@
     } catch (error) {
       preview = [];
       $('v025Import').hidden = true;
+      $('v025InvalidBox').hidden = true;
+      $('v025InvalidRows').replaceChildren();
       $('v025PreviewRows').replaceChildren();
       $('v025ImportNotice').textContent = error.message;
     }
@@ -193,6 +182,7 @@
     let created = 0;
     let skipped = 0;
     const errors = [];
+    const skippedRows = [];
     try {
       const areas = await schoolRequest('mang_list');
       const criteria = await schoolRequest('tieuchi_list');
@@ -205,48 +195,34 @@
             area = await schoolRequest('mang_create', { ma: item.ma_mang, ten: item.ten_mang, mo_ta: '' });
             areaByCode.set(item.ma_mang.toLowerCase(), area);
           }
-          if (criterionByCode.has(item.ma.toLowerCase())) {
-            skipped += 1;
-            continue;
-          }
-          await schoolRequest('tieuchi_create', {
-            mang_id: area.id,
-            ma: item.ma,
-            ten: item.ten,
-            doi_tuong: item.doi_tuong,
-            diem: item.diem,
-            chu_ky: item.chu_ky,
-          });
+          if (criterionByCode.has(item.ma.toLowerCase())) { skipped += 1; skippedRows.push(`Dòng ${item.row}: mã tiêu chí ${item.ma} đã tồn tại, không ghi trùng.`); continue; }
+          await schoolRequest('tieuchi_create', { mang_id: area.id, ma: item.ma, ten: item.ten, doi_tuong: item.doi_tuong, diem: item.diem, chu_ky: item.chu_ky });
           criterionByCode.add(item.ma.toLowerCase());
           created += 1;
-        } catch (error) {
-          errors.push(`Dòng ${item.row}: ${error.message}`);
-        }
+        } catch (error) { errors.push(`Dòng ${item.row}: ${error.message}`); }
       }
-      $('v025ImportNotice').textContent = `Đã thêm ${created}, bỏ qua ${skipped}, lỗi ${errors.length}. ${errors.slice(0, 3).join(' | ')}`;
+      $('v025ImportNotice').textContent = `Đã thêm ${created}, bỏ qua ${skipped}, lỗi ${errors.length}.`;
+      if (errors.length || skippedRows.length) {
+        $('v025InvalidBox').hidden = false;
+        const invalidRoot = $('v025InvalidRows');
+        for (const message of errors) invalidRoot.append(Object.assign(document.createElement('div'), { className: 'v025-invalid-row', textContent: message }));
+        for (const message of skippedRows) invalidRoot.append(Object.assign(document.createElement('div'), { className: 'v025-invalid-row v025-skipped-row', textContent: message }));
+      }
       if (created) $('v024Refresh').click();
-    } catch (error) {
-      $('v025ImportNotice').textContent = error.message;
-    } finally {
-      $('v025Import').disabled = false;
-    }
+    } catch (error) { $('v025ImportNotice').textContent = error.message; }
+    finally { $('v025Import').disabled = false; }
   }
 
   const box = document.createElement('fieldset');
   box.id = 'v025ImportBox';
   box.hidden = $('v024Kind').value !== 'tieuchi';
-  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem, chu_ky. Có thể nhập nhiều chu kỳ bằng dấu phẩy.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">Tải file mẫu Excel</button><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025PreviewRows" class="b43list"></div>';
+  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem, chu_ky.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">Tải file mẫu Excel</button><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025InvalidBox" class="v025-invalid-box" hidden><strong>Dòng không hợp lệ</strong><button id="v025InvalidDownload" type="button" class="outline">Tải báo cáo lỗi CSV</button><div id="v025InvalidRows" class="v025-invalid-list"></div></div><div id="v025PreviewRows" class="b43list"></div>';
   $('v024Form').after(box);
-  $('v025Template').innerHTML = '<span aria-hidden="true">⇩</span><span>Tải file mẫu Excel</span>';
-  $('v025Template').classList.add('v024-action');
-  $('v025Preview').innerHTML = '<span aria-hidden="true">⌕</span><span>Xem trước Excel</span>';
-  $('v025Preview').classList.add('v024-action');
-  $('v025Import').innerHTML = '<span aria-hidden="true">✓</span><span>Ghi các dòng hợp lệ</span>';
-  $('v025Import').classList.add('v024-action');
+  $('v025Template').onclick = downloadTemplate;
+  $('v025Preview').onclick = previewFile;
+  $('v025Import').onclick = importRows;
+  $('v025InvalidDownload').onclick = downloadInvalidReport;
   window.edunexaSyncV025Import = kind => { box.hidden = kind !== 'tieuchi'; };
   $('v024Kind').addEventListener('change', () => window.edunexaSyncV025Import($('v024Kind').value));
   window.edunexaSyncV025Import($('v024Kind').value);
-  $('v025Preview').onclick = previewFile;
-  $('v025Template').onclick = downloadTemplate;
-  $('v025Import').onclick = importRows;
 })();

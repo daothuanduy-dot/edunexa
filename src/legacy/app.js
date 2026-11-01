@@ -162,6 +162,13 @@
   async function b43Load(){if(!b43School)return;const serial=++b43Serial;b43notice('Đang tải dữ liệu...');try{const data=await b43api('tong_quan');if(serial!==b43Serial)return;b43Data=data;b43Render();b43notice('Dữ liệu đã đồng bộ');loadSchoolDashboard(b43School)}catch(e){if(serial===b43Serial)b43notice('Lỗi tải dữ liệu: '+e.message,true)}}
   async function b43Mutate(action,data,confirmation){if(confirmation&&!confirm(confirmation))return;try{b43notice('Đang lưu...');await b43api(action,data);await b43Load();b43notice('Đã lưu thành công');return true}catch(e){b43notice(e.message,true);return false}}
   async function b43Logs(){const root=$('b43LogList');root.textContent='Đang tải...';try{const logs=await b43api('nhat_ky');root.replaceChildren();for(const log of logs){const row=b43Node('div','');row.className='b43entry';const date=new Date(log.ngay_tao).toLocaleString('vi-VN');row.append(b43Node('span',`${date} · ${log.hanh_dong} · ${log.doi_tuong}`));root.append(row)}if(!logs.length)root.textContent='Chưa có nhật ký B4.3.'}catch(e){root.textContent=e.message}}
+  const profileBox = document.querySelector('.v023box');
+  const profileButton = $('b43OpenProfiles');
+  if (profileBox && profileButton) {
+    $('b43-settings').append(profileBox);
+    profileBox.hidden = true;
+    profileButton.onclick = () => { profileBox.hidden = !profileBox.hidden; profileButton.textContent = profileBox.hidden ? 'Hồ sơ người dùng' : 'Ẩn hồ sơ người dùng'; };
+  }
   function b43Open(tab){for(const x of ['years','classes','settings','logs','overview','members'])$('b43-'+x).hidden=x!==tab;for(const b of document.querySelectorAll('[data-b43-tab]'))b.classList.toggle('selected',b.dataset.b43Tab===tab);if(tab==='logs')b43Logs();if(tab==='members')b44Members()}
   // B4.4: read-only, school-scoped membership listing. No new auth client or write path.
   let b44Request=0;

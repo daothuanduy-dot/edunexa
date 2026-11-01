@@ -34,16 +34,30 @@
 .v024-row-detail{min-width:0;display:grid;gap:5px}
 .v024-row-detail strong{overflow-wrap:anywhere}
 .v024-row-detail small{color:#60758b;overflow-wrap:anywhere}
+.v024-row-check{width:18px;height:18px;flex:0 0 auto;margin:4px 4px 0 0}
 .v024-row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
 .v024-action{display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap}
+.v024-selection-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:12px 0;padding:10px;border:1px solid #dce6f1;border-radius:10px;background:#f8fbff;color:#60758b}
+.v024-selection-toolbar span{margin-right:auto}
 #v025ImportBox{margin-top:18px;border:1px solid #dce6f1;border-radius:12px;padding:14px}
 #v025ImportBox button{margin:10px 8px 0 0}
 #v025PreviewRows{max-height:280px;overflow-y:auto;padding-right:8px}
+.v025-invalid-box{margin:12px 0;padding:12px;border:1px solid #f0b4b4;border-radius:10px;background:#fff7f7;color:#8b1e1e}
+.v025-invalid-box>strong{display:inline-block;margin-right:10px}
+.v025-invalid-list{display:grid;gap:6px;max-height:220px;overflow-y:auto;margin-top:10px}
+.v025-invalid-row{display:grid;gap:3px;padding:8px;border:1px solid #efcaca;border-radius:8px;background:#fff}
+.v025-invalid-row small{color:#8b1e1e}
+.v025-skipped-row{border-color:#e7cf8a;background:#fffbed;color:#745b00}
+.v025-preview-invalid{border-color:#efcaca;background:#fff7f7}
 #v024HistoryDialog{width:min(680px,calc(100vw - 32px));border:1px solid #dce6f1;border-radius:14px;padding:20px;box-shadow:0 14px 40px #1e456033}
 #v024HistoryDialog::backdrop{background:#17283f66}
 .v024-history-body{display:grid;gap:8px;max-height:360px;overflow-y:auto;margin:14px 0}
 .v024-history-item{display:grid;gap:4px;padding:10px;border:1px solid #dce6f1;border-radius:9px;background:#f8fbff}
 .v024-history-item small{color:#60758b}
+.v027-formula-toolbar{display:grid;gap:8px;margin:14px 0;padding:14px;border:1px solid #c7def1;border-radius:12px;background:#f4f9fd}
+.v027-formula-toolbar>span{color:#60758b;font-size:.92rem}
+.v027-formula-toolbar-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.v027-formula-toolbar-row select{flex:1;min-width:220px}
 #v027FormulaDialog{width:min(680px,calc(100vw - 32px));border:1px solid #dce6f1;border-radius:14px;padding:20px;box-shadow:0 14px 40px #1e456033}
 #v027FormulaDialog::backdrop{background:#17283f66}
 .v024-formula-help{color:#60758b;margin-top:0}

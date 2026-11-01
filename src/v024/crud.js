@@ -14,6 +14,15 @@
   let selectedAreaId = 'all';
   let areaFilterSelect = null;
   let areaFilterLabel = null;
+  let formulaToolbar = null;
+  let formulaCriterionSelect = null;
+  let formulaOpenButton = null;
+  const selectedCriteriaIds = new Set();
+  let selectionToolbar = null;
+  let selectionCount = null;
+  let selectAllButton = null;
+  let clearSelectionButton = null;
+  let archiveSelectedButton = null;
 
   const note = message => { $('v024Notice').textContent = message; };
   const el = (tag, props = {}) => Object.assign(document.createElement(tag), props);
@@ -83,6 +92,7 @@
       });
       button.dataset.kind = option.value;
       button.onclick = () => {
+        if (option.value === 'tieuchi' && select.value !== 'tieuchi') selectedAreaId = 'all';
         select.value = option.value;
         syncKindControls();
         load();
@@ -100,7 +110,7 @@
     profileSelect.onchange = () => { profileFilter = profileSelect.value; renderRows(); };
     profileLabel.append(profileSelect);
     $('v024Refresh').before(profileLabel);
-    areaFilterLabel = el('label', { className: 'v024-area-filter', textContent: 'Mảng đang xem' });
+    areaFilterLabel = el('label', { className: 'v024-area-filter', textContent: 'Lọc tiêu chí theo mảng' });
     areaFilterSelect = el('select', { id: 'v024AreaFilter' });
     areaFilterSelect.append(el('option', { value: 'all', textContent: 'Tất cả mảng thi đua' }));
     areaFilterSelect.onchange = () => {
@@ -111,6 +121,43 @@
     };
     areaFilterLabel.append(areaFilterSelect);
     $('v024Refresh').before(areaFilterLabel);
+    selectionToolbar = el('div', { id: 'v024CriteriaSelection', className: 'v024-selection-toolbar', hidden: true });
+    selectionCount = el('span', { textContent: '0 tiêu chí được chọn' });
+    selectAllButton = el('button', { type: 'button', className: 'outline', textContent: 'Chọn tất cả' });
+    clearSelectionButton = el('button', { type: 'button', className: 'outline', textContent: 'Bỏ chọn' });
+    archiveSelectedButton = el('button', { type: 'button', className: 'outline', textContent: 'Xóa tiêu chí đã chọn' });
+    selectAllButton.onclick = () => {
+      rows.forEach(row => selectedCriteriaIds.add(row.id));
+      renderRows();
+    };
+    clearSelectionButton.onclick = () => {
+      selectedCriteriaIds.clear();
+      renderRows();
+    };
+    archiveSelectedButton.onclick = async () => {
+      const ids = [...selectedCriteriaIds];
+      if (!ids.length || !confirm(`Ngừng hiệu lực ${ids.length} tiêu chí đã chọn?`)) return;
+      archiveSelectedButton.disabled = true;
+      try {
+        for (const id of ids) {
+          const row = rows.find(item => item.id === id);
+          if (row) await api('tieuchi_archive', { id: row.id, ngay_cap_nhat: row.ngay_cap_nhat });
+        }
+        selectedCriteriaIds.clear();
+        await load();
+      } catch (error) { note(error.message); }
+      finally { archiveSelectedButton.disabled = false; }
+    };
+    selectionToolbar.append(selectionCount, selectAllButton, clearSelectionButton, archiveSelectedButton);
+    $('v024Rows').before(selectionToolbar);
+    formulaToolbar = $('v027FormulaToolbar');
+    formulaCriterionSelect = $('v027FormulaCriterion');
+    formulaOpenButton = $('v027FormulaOpen');
+    formulaOpenButton.onclick = () => {
+      const row = rows.find(item => item.id === formulaCriterionSelect.value);
+      if (row) showFormulaEditor(row);
+    };
+    formulaCriterionSelect.onchange = () => { formulaOpenButton.disabled = !formulaCriterionSelect.value; };
     const iconButton = (button, symbol) => {
       if (!button || button.dataset.iconReady) return;
       button.dataset.iconReady = 'true';
@@ -132,15 +179,47 @@
       });
       profileLabel.hidden = kind !== 'hoso';
       areaFilterLabel.hidden = kind !== 'tieuchi';
+      if (formulaToolbar) formulaToolbar.hidden = kind !== 'tieuchi';
+      if (selectionToolbar) selectionToolbar.hidden = kind !== 'tieuchi';
+      if (kind !== 'tieuchi') selectedCriteriaIds.clear();
       if (kind !== 'hoso') profileFilter = 'all';
       const refreshText = $('v024Refresh').querySelector('span:last-child');
       if (refreshText) refreshText.textContent = `Tải danh sách ${kindName}`;
       const clearText = $('v024Clear').querySelector('span:last-child');
       if (clearText) clearText.textContent = kind === 'hoso' ? 'Thêm hồ sơ ở tab Người dùng' : `Thêm ${kindName}`;
       window.edunexaSyncV025Import?.(kind);
+      syncFormulaToolbar();
     }
     window.edunexaSyncV024Kind = syncKindControls;
     syncKindControls();
+  }
+
+  function syncFormulaToolbar() {
+    if (!formulaCriterionSelect || !formulaOpenButton) return;
+    const current = formulaCriterionSelect.value;
+    formulaCriterionSelect.replaceChildren();
+    if (!rows.length) {
+      formulaCriterionSelect.append(el('option', { value: '', textContent: 'Tải danh sách tiêu chí trước' }));
+      formulaOpenButton.disabled = true;
+      return;
+    }
+    for (const row of rows) {
+      formulaCriterionSelect.append(el('option', {
+        value: row.id,
+        textContent: `${row.ma} · ${row.ten}`,
+      }));
+    }
+    formulaCriterionSelect.value = rows.some(row => row.id === current) ? current : rows[0].id;
+    formulaOpenButton.disabled = false;
+  }
+
+  function syncSelectionToolbar() {
+    if (!selectionToolbar || !selectionCount) return;
+    for (const id of [...selectedCriteriaIds]) if (!rows.some(row => row.id === id)) selectedCriteriaIds.delete(id);
+    selectionCount.textContent = `${selectedCriteriaIds.size} tiêu chí được chọn`;
+    selectAllButton.disabled = !rows.length || selectedCriteriaIds.size === rows.length;
+    clearSelectionButton.disabled = !selectedCriteriaIds.size;
+    archiveSelectedButton.disabled = !selectedCriteriaIds.size;
   }
 
   function syncAreaFilterOptions() {
@@ -346,6 +425,8 @@
 
   function renderRows() {
     const kind = $('v024Kind').value;
+    syncFormulaToolbar();
+    syncSelectionToolbar();
     const visibleRows = kind === 'hoso' && profileFilter !== 'all'
       ? rows.filter(row => row.loai === profileFilter)
       : kind === 'tieuchi' && selectedAreaId !== 'all'
@@ -369,6 +450,15 @@
         detail.append(el('span', { className: 'v024-row-parent', textContent: `Mảng cha: ${areaName(row.mang_id)}` }));
       }
       const actions = el('div', { className: 'v024-row-actions' });
+      if (kind === 'tieuchi') {
+        const checkbox = el('input', { type: 'checkbox', className: 'v024-row-check', checked: selectedCriteriaIds.has(row.id) });
+        checkbox.setAttribute('aria-label', `Chọn tiêu chí ${row.ma}`);
+        checkbox.onchange = () => {
+          if (checkbox.checked) selectedCriteriaIds.add(row.id); else selectedCriteriaIds.delete(row.id);
+          syncSelectionToolbar();
+        };
+        item.prepend(checkbox);
+      }
       if (kind === 'mang') {
         const children = el('button', { type: 'button', className: 'outline v024-action', title: 'Xem các tiêu chí thuộc mảng này' });
         children.innerHTML = `<span aria-hidden="true">→</span><span>Tiêu chí (${childCount})</span>`;
@@ -442,7 +532,7 @@
     $('v024Panel').hidden = true;
     $('v024Tab').classList.remove('selected');
   }));
-  $('v024Kind').onchange = () => { window.edunexaSyncV024Kind?.(); load(); };
+  $('v024Kind').onchange = () => { if ($('v024Kind').value === 'tieuchi') selectedAreaId = 'all'; window.edunexaSyncV024Kind?.(); load(); };
   $('v024Refresh').onclick = load;
   $('v024Clear').onclick = () => renderForm();
   $('v024Form').onsubmit = async event => {
