@@ -50,23 +50,43 @@
     if(recoveryMode){view('reset');return;}
     const {data:{session}}=await sb.auth.getSession();
     if(!session){view('login');return;}
-    const ctx=await call('boi_canh');
+    let ctx={};
+    let contextError=null;
+    try{ctx=await call('boi_canh')}catch(e){contextError=e}
+    let recorderSchools=[];
+    try{recorderSchools=await call('scoring_recorder_context')||[]}catch(e){if(!contextError)console.warn('Recorder context is unavailable',e.message)}
+    if(contextError&&!recorderSchools.length)throw contextError;
     const choices=[];
     if(ctx.platform_admin)choices.push({label:'Quản trị nền tảng',type:'platform'});
     for(const school of ctx.schools||[])choices.push({label:school.ten_truong+' · '+school.ma_truong,type:'school',school});
+    for(const school of recorderSchools){
+      if(!(ctx.schools||[]).some(item=>item.id===school.id))choices.push({label:school.ten_truong+' · '+school.ma_truong+' · Ghi nhận thi đua',type:'recorder',school});
+    }
     if(!choices.length){view('login');msg('Tài khoản chưa được cấp quyền quản trị EduNexa.',true);return;}
     const select=(choice)=>{
       ++b44Request;++dashboardRequestId;
       if(choice.type==='platform'){b43School=null;view('app');refresh();return;}
+      const recorderOnly=choice.type==='recorder';
       $('schoolName').textContent=choice.school.ten_truong;
       $('schoolInfo').textContent='Mã trường: '+choice.school.ma_truong;
       $('schoolStatus').textContent=statuses[choice.school.trang_thai]||choice.school.trang_thai;
       $('schoolCode').textContent=choice.school.ma_truong;
-      $('schoolRole').textContent='Quản trị trường';
+      $('schoolRole').textContent=recorderOnly?'Người ghi nhận thi đua':'Quản trị trường';
       $('switchContext').hidden=choices.length<2;
+      $('school').querySelector('.dashboard-stats').hidden=recorderOnly;
+      $('school').querySelector('.dashboard-notice').hidden=recorderOnly;
+      $('school').querySelector('.dashboard-modules').hidden=recorderOnly;
+      document.querySelectorAll('#school > h2, #b43 > .b43tabs, #b43 > #b43notice').forEach(element=>{element.hidden=recorderOnly});
       view('school');
+      b43School=choice.school;
+      if(recorderOnly){
+        const openScoring=()=>window.edunexaScoringOpen?.();
+        if(window.edunexaScoringOpen)openScoring();
+        else document.addEventListener('DOMContentLoaded',openScoring,{once:true});
+        return;
+      }
       loadSchoolDashboard(choice.school);
-      b43School=choice.school;b43Open('overview');b43Load();
+      b43Open('overview');b43Load();
     };
     if(choices.length===1){select(choices[0]);return;}
     const root=$('contexts');root.replaceChildren();
@@ -214,14 +234,37 @@
     try{
       if(!b43School)throw Error('Chưa chọn trường');
       const schoolId=b43School.id;
-      const members=await call('danh_sach_thanh_vien',{truong_id:schoolId});
+      const [members,permissions]=await Promise.all([
+        call('danh_sach_thanh_vien',{truong_id:schoolId}),
+        call('scoring_permissions_list',{truong_id:schoolId})
+      ]);
       if(serial!==b44Request||!b43School||b43School.id!==schoolId)return;
-      if(!Array.isArray(members))throw Error('Phản hồi không hợp lệ');
+      if(!Array.isArray(members)||!Array.isArray(permissions))throw Error('Phản hồi không hợp lệ');
+      const permissionByMember=new Map(permissions.map(item=>[item.thanh_vien_id,item]));
       for(const m of members){
         const row=b43Node('div','');row.className='b43entry';
         const detail=b43Node('div',m.email||m.nguoi_dung_id);
         detail.append(b43Node('small',`Trạng thái: ${m.trang_thai} · Vai trò: ${(m.vai_tro||[]).join(', ')||'Chưa cấp'}`));
-        row.append(detail);root.append(row);
+        const permission=permissionByMember.get(m.thanh_vien_id);
+        if(!permission)throw Error('Thiếu trạng thái quyền ghi nhận cho thành viên');
+        const toggle=document.createElement('button');
+        toggle.type='button';
+        toggle.className=permission.co_quyen_ghi_nhan?'outline':'';
+        toggle.textContent=permission.co_quyen_ghi_nhan?'Gỡ quyền ghi nhận':'Cấp quyền ghi nhận';
+        toggle.disabled=m.trang_thai!=='active'&&!permission.co_quyen_ghi_nhan;
+        toggle.onclick=async()=>{
+          const action=permission.co_quyen_ghi_nhan?'scoring_permission_revoke':'scoring_permission_grant';
+          const verb=permission.co_quyen_ghi_nhan?'gỡ':'cấp';
+          if(!confirm(`Xác nhận ${verb} quyền ghi nhận cho ${m.email||m.nguoi_dung_id}?`))return;
+          toggle.disabled=true;
+          try{
+            await call(action,{truong_id:schoolId,du_lieu:{thanh_vien_id:m.thanh_vien_id}});
+            await b44Members();
+            $('b44Notice').textContent=`Đã ${verb} quyền ghi nhận cho ${m.email||m.nguoi_dung_id}.`;
+          }catch(e){if(serial===b44Request)$('b44Notice').textContent='Không cập nhật được quyền ghi nhận: '+e.message}
+          finally{toggle.disabled=false}
+        };
+        row.append(detail,toggle);root.append(row);
       }
       $('b44Notice').textContent=`Đã tải ${members.length} thành viên (tối đa 500).`;
       if(!members.length)root.textContent='Trường chưa có thành viên.';
