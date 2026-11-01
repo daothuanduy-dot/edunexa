@@ -26,7 +26,7 @@
   const fields = {
     hoso: [['ho_ten', 'Họ tên'], ['ngay_sinh', 'Ngày sinh'], ['lop', 'Lớp'], ['email', 'Email']],
     mang: [['ma', 'Mã mảng'], ['ten', 'Tên mảng'], ['mo_ta', 'Mô tả']],
-    tieuchi: [['ma', 'Ma tieu chi'], ['ten', 'Ten tieu chi'], ['diem_gioi_han', 'Gioi han diem']],
+    tieuchi: [['ma', 'Ma tieu chi'], ['ten', 'Ten tieu chi'], ['diem_co_dinh', 'Diem co dinh']],
   };
 
   function setTabActive(v024Active) {
@@ -376,15 +376,33 @@
       const label = el('label', { textContent: title });
       const input = el('input', {
         id: `v024_${key}`,
-        value: row[key] ?? (key === 'diem_gioi_han' ? row.diem : ''),
+        value: row[key] ?? (key === 'diem_co_dinh' ? row.diem : ''),
         required: key === 'ho_ten' || key === 'ma' || key === 'ten',
       });
       if (key === 'ngay_sinh') input.type = 'date';
-      if (key === 'diem_gioi_han') { input.type = 'number'; input.step = '0.01'; input.min = '-100000'; input.max = '100000'; input.placeholder = 'Gioi han, khong phai diem cham co dinh'; }
+      if (key === 'diem_co_dinh') { input.type = 'number'; input.step = '0.01'; input.min = '-100000'; input.max = '100000'; }
       label.append(input);
       root.append(label);
     }
     if (kind === 'tieuchi') {
+      const flexibleLabel = el('label', { textContent: 'Diem linh hoat theo thuc te' });
+      const flexibleCheck = el('input', { id: 'v024_diem_linh_hoat', type: 'checkbox', checked: row.che_do_diem === 'flexible' });
+      flexibleLabel.prepend(flexibleCheck);
+      const limitLabel = el('label', { textContent: 'Dinh muc diem cao nhat' });
+      const limitInput = el('input', { id: 'v024_diem_gioi_han', type: 'number', step: '0.01', min: '-100000', max: '100000', value: row.diem_gioi_han ?? row.diem ?? '', placeholder: 'So diem toi da cho moi lan ghi nhan' });
+      limitLabel.append(limitInput);
+      root.append(flexibleLabel, limitLabel);
+      const fixedInput = $('v024_diem_co_dinh');
+      const syncScoreMode = () => {
+        const flexible = flexibleCheck.checked;
+        if (fixedInput?.parentElement) fixedInput.parentElement.hidden = flexible;
+        limitLabel.hidden = !flexible;
+        flexibleCheck.setAttribute('aria-label', flexible ? 'Dang dung diem linh hoat' : 'Dang dung diem co dinh');
+        fixedInput.required = !flexible;
+        limitInput.required = flexible;
+      };
+      flexibleCheck.onchange = syncScoreMode;
+      syncScoreMode();
       const areaLabel = el('label', { textContent: 'Mảng thi đua (mảng cha)' });
       const areaSelect = el('select', { id: 'v024_mang_id' });
       for (const area of areas) areaSelect.append(el('option', { value: area.id, textContent: area.ten }));
@@ -436,7 +454,7 @@
         ? [type, row.ma_dinh_danh, row.lop, row.email, row.ngay_sinh].filter(Boolean).join(' · ')
         : kind === 'mang'
           ? [row.ma, `Số tiêu chí: ${childCount}`, row.mo_ta].filter(Boolean).join(' · ')
-          : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', `gi?i h?n ${row.diem_gioi_han ?? row.diem}`, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
+          : [row.ma, row.doi_tuong === 'student' ? 'Cá nhân' : 'Lớp', `${row.che_do_diem === 'flexible' ? 'Linh hoat - dinh muc' : 'Co dinh'}: ${row.che_do_diem === 'flexible' ? row.diem_gioi_han : (row.diem_co_dinh ?? row.diem)}`, (row.chu_ky || []).join(', ')].filter(value => value !== undefined && value !== '').join(' · ');
       detail.append(el('strong', { textContent: title }), el('small', { textContent: summary }));
       if (kind === 'tieuchi') {
         detail.append(el('span', { className: 'v024-row-parent', textContent: `Mảng cha: ${areaName(row.mang_id)}` }));
@@ -530,8 +548,11 @@
     const id = $('v024Id').value;
     const data = {};
     for (const [key] of fields[kind]) data[key] = $(`v024_${key}`).value;
-    if (kind === 'tieuchi') data.diem = data.diem_gioi_han;
     if (kind === 'tieuchi') {
+      const flexible = $('v024_diem_linh_hoat').checked;
+      data.che_do_diem = flexible ? 'flexible' : 'fixed';
+      data.diem_gioi_han = flexible ? $('v024_diem_gioi_han').value : data.diem_co_dinh;
+      data.diem = data.diem_gioi_han;
       data.mang_id = $('v024_mang_id').value;
       data.doi_tuong = $('v024_doi_tuong').value;
       data.chu_ky = [...document.querySelectorAll('[name=v024_cycle]:checked')].map(box => box.value);

@@ -55,7 +55,9 @@
     ma_tieu_chi: ['ma_tieu_chi', 'ma_tieu_chi_thi_dua', 'ma_criteria'],
     ten: ['ten', 'ten_tieu_chi', 'tieu_chi'],
     doi_tuong: ['doi_tuong', 'ap_dung'],
-    diem_gioi_han: ['diem_gioi_han', 'gioi_han_diem', 'diem_toi_da', 'diem'],
+    che_do_diem: ['che_do_diem', 'che_do', 'kieu_diem', 'score_mode'],
+    diem_co_dinh: ['diem_co_dinh', 'diem'],
+    diem_gioi_han: ['diem_gioi_han', 'gioi_han_diem', 'diem_toi_da'],
     chu_ky: ['chu_ky', 'chu_ky_danh_gia', 'ky_danh_gia'],
   };
 
@@ -63,7 +65,7 @@
     if (rows.length < 2) throw Error('Tệp Excel chưa có dữ liệu');
     const normalized = rows[0].map(normalize);
     const columns = Object.fromEntries(Object.entries(aliases).map(([key, values]) => [key, normalized.findIndex(item => values.includes(item))]));
-    const required = Object.keys(aliases);
+    const required = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'chu_ky'];
     const missing = required.filter(key => columns[key] < 0);
     if (missing.length) throw Error(`Thiếu cột: ${missing.join(', ')}`);
 
@@ -71,6 +73,10 @@
     return rows.slice(1, 101).map((source, index) => {
       const value = key => String(source[columns[key]] ?? '').trim();
       const target = normalize(value('doi_tuong'));
+      const modeValue = normalize(value('che_do_diem'));
+      const mode = ['flexible', 'linh_hoat', 'dynamic', 'thuc_te'].includes(modeValue) ? 'flexible' : 'fixed';
+      const fixedRaw = value('diem_co_dinh');
+      const limitRaw = value('diem_gioi_han');
       const item = {
         row: index + 2,
         ma_mang: value('ma_mang'),
@@ -78,14 +84,17 @@
         ma: value('ma_tieu_chi'),
         ten: value('ten'),
         doi_tuong: ['class', 'lop', 'tap_the'].includes(target) ? 'class' : ['student', 'ca_nhan', 'canhan'].includes(target) ? 'student' : '',
-        diem_gioi_han: Number(value('diem_gioi_han').replace(',', '.')),
+        che_do_diem: mode,
+        diem_co_dinh: Number((fixedRaw || (mode === 'fixed' ? limitRaw : '')).replace(',', '.')),
+        diem_gioi_han: Number((limitRaw || (mode === 'fixed' ? fixedRaw : '')).replace(',', '.')),
         chu_ky: value('chu_ky').split(/[,;|\s]+/).map(normalize).filter(Boolean),
         loi: [],
       };
       if (!item.ma_mang || !item.ten_mang) item.loi.push('Thiếu mã hoặc tên mảng');
       if (!item.ma || !item.ten) item.loi.push('Thiếu mã hoặc tên tiêu chí');
       if (!item.doi_tuong) item.loi.push('Đối tượng phải là student hoặc class');
-      if (!Number.isFinite(item.diem_gioi_han) || item.diem_gioi_han === 0 || item.diem_gioi_han < -100000 || item.diem_gioi_han > 100000) item.loi.push('Điểm giới hạn phải khác 0 và nằm trong -100000 đến 100000');
+      const score = mode === 'fixed' ? item.diem_co_dinh : item.diem_gioi_han;
+      if (!Number.isFinite(score) || score === 0 || score < -100000 || score > 100000) item.loi.push('Diem khong hop le cho che do da chon');
       if (!item.chu_ky.length || item.chu_ky.some(cycle => !['week', 'month', 'semester', 'year'].includes(cycle))) item.loi.push('Chu kỳ không hợp lệ');
       const duplicateKey = `${item.ma_mang}:${item.ma}`.toLowerCase();
       if (seen.has(duplicateKey)) item.loi.push('Trùng trong tệp');
@@ -128,9 +137,9 @@
   function downloadInvalidReport() {
     const invalid = preview.filter(item => item.loi.length);
     if (!invalid.length) return;
-    const headers = ['dong', 'ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem_gioi_han', 'chu_ky', 'loi'];
+    const headers = ['dong', 'ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'che_do_diem', 'diem_co_dinh', 'diem_gioi_han', 'chu_ky', 'loi'];
     const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
-    const csv = [headers, ...invalid.map(item => [item.row, item.ma_mang, item.ten_mang, item.ma, item.ten, item.doi_tuong, item.diem_gioi_han, item.chu_ky.join(','), item.loi.join('; ')])]
+    const csv = [headers, ...invalid.map(item => [item.row, item.ma_mang, item.ten_mang, item.ma, item.ten, item.doi_tuong, item.che_do_diem, item.diem_co_dinh, item.diem_gioi_han, item.chu_ky.join(','), item.loi.join('; ')])]
       .map(row => row.map(csvCell).join(',')).join('\r\n');
     const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
     const link = document.createElement('a');
@@ -143,10 +152,10 @@
   async function downloadTemplate() {
     try {
       const XLSX = await loadXlsx();
-      const headers = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'diem_gioi_han', 'chu_ky'];
-      const sample = { ma_mang: 'NN', ten_mang: 'Nề nếp', ma_tieu_chi: 'NN-01', ten: 'Đi học đúng giờ', doi_tuong: 'student', diem_gioi_han: 1, chu_ky: 'week,month' };
+      const headers = ['ma_mang', 'ten_mang', 'ma_tieu_chi', 'ten', 'doi_tuong', 'che_do_diem', 'diem_co_dinh', 'diem_gioi_han', 'chu_ky'];
+      const sample = { ma_mang: 'NN', ten_mang: 'Nề nếp', ma_tieu_chi: 'NN-01', ten: 'Đi học đúng giờ', doi_tuong: 'student', che_do_diem: 'fixed', diem_co_dinh: 1, diem_gioi_han: 1, chu_ky: 'week,month' };
       const sheet = XLSX.utils.json_to_sheet([sample], { header: headers });
-      const guide = XLSX.utils.aoa_to_sheet([['Cột', 'Quy tắc'], ['ma_mang', 'Mã mảng thi đua, bắt buộc'], ['ten_mang', 'Tên mảng thi đua, bắt buộc'], ['ma_tieu_chi', 'Mã tiêu chí, bắt buộc'], ['ten', 'Tên tiêu chí, bắt buộc'], ['doi_tuong', 'Chỉ dùng student hoặc class'], ['diem_gioi_han', 'Giới hạn điểm, không phải điểm chấm cố định; từ -100000 đến 100000 và khác 0'], ['chu_ky', 'week, month, semester hoặc year']]);
+      const guide = XLSX.utils.aoa_to_sheet([['Cot', 'Quy tac'], ['ma_mang', 'Ma mang thi dua, bat buoc'], ['ten_mang', 'Ten mang thi dua, bat buoc'], ['ma_tieu_chi', 'Ma tieu chi, bat buoc'], ['ten', 'Ten tieu chi, bat buoc'], ['doi_tuong', 'student hoac class'], ['che_do_diem', 'fixed hoac flexible'], ['diem_co_dinh', 'Bat buoc khi che_do_diem=fixed'], ['diem_gioi_han', 'Bat buoc khi che_do_diem=flexible; dinh muc cao nhat'], ['chu_ky', 'week, month, semester hoac year']]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, 'TieuChi');
       XLSX.utils.book_append_sheet(workbook, guide, 'HuongDan');
@@ -196,7 +205,7 @@
             areaByCode.set(item.ma_mang.toLowerCase(), area);
           }
           if (criterionByCode.has(item.ma.toLowerCase())) { skipped += 1; skippedRows.push(`Dòng ${item.row}: mã tiêu chí ${item.ma} đã tồn tại, không ghi trùng.`); continue; }
-          await schoolRequest('tieuchi_create', { mang_id: area.id, ma: item.ma, ten: item.ten, doi_tuong: item.doi_tuong, diem: item.diem_gioi_han, diem_gioi_han: item.diem_gioi_han, chu_ky: item.chu_ky });
+          await schoolRequest('tieuchi_create', { mang_id: area.id, ma: item.ma, ten: item.ten, doi_tuong: item.doi_tuong, che_do_diem: item.che_do_diem, diem_co_dinh: item.diem_co_dinh, diem_gioi_han: item.diem_gioi_han, diem: item.che_do_diem === 'fixed' ? item.diem_co_dinh : item.diem_gioi_han, chu_ky: item.chu_ky });
           criterionByCode.add(item.ma.toLowerCase());
           created += 1;
         } catch (error) { errors.push(`Dòng ${item.row}: ${error.message}`); }
@@ -216,7 +225,7 @@
   const box = document.createElement('fieldset');
   box.id = 'v025ImportBox';
   box.hidden = $('v024Kind').value !== 'tieuchi';
-  box.innerHTML = '<legend>Nhập tiêu chí từ Excel</legend><p>Mẫu cột: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, diem_gioi_han, chu_ky. Điểm giới hạn chỉ xác định mức tối đa/tối thiểu; điểm chấm thực tế nhập ở bước ghi nhận.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">Tải file mẫu Excel</button><button id="v025Preview" type="button" class="outline">Xem trước Excel</button><button id="v025Import" type="button" hidden>Ghi các dòng hợp lệ</button><p id="v025ImportNotice" role="status"></p><div id="v025InvalidBox" class="v025-invalid-box" hidden><strong>Dòng không hợp lệ</strong><button id="v025InvalidDownload" type="button" class="outline">Tải báo cáo lỗi CSV</button><div id="v025InvalidRows" class="v025-invalid-list"></div></div><div id="v025PreviewRows" class="b43list"></div>';
+  box.innerHTML = '<legend>Nh?p ti?u ch? t? Excel</legend><p>M?u c?t: ma_mang, ten_mang, ma_tieu_chi, ten, doi_tuong, che_do_diem, diem_co_dinh, diem_gioi_han, chu_ky. V?i fixed d?ng ?i?m c? ??nh; v?i flexible d?ng ??nh m?c cao nh?t.</p><input id="v025Excel" type="file" accept=".xlsx,.xls"><button id="v025Template" type="button" class="outline">T?i file m?u Excel</button><button id="v025Preview" type="button" class="outline">Xem tr??c Excel</button><button id="v025Import" type="button" hidden>Ghi c?c d?ng h?p l?</button><p id="v025ImportNotice" role="status"></p><div id="v025InvalidBox" class="v025-invalid-box" hidden><strong>D?ng kh?ng h?p l?</strong><button id="v025InvalidDownload" type="button" class="outline">T?i b?o c?o l?i CSV</button><div id="v025InvalidRows" class="v025-invalid-list"></div></div><div id="v025PreviewRows" class="b43list"></div>';
   $('v024Form').after(box);
   $('v025Template').onclick = downloadTemplate;
   $('v025Preview').onclick = previewFile;
