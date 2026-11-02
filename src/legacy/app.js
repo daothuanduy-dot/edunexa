@@ -760,15 +760,58 @@
     return total;
   };
   let v023Rows=[];
-  function v023ResetEdit(){ $('v023Form').reset();$('v023Id').value='';$('v023Updated').value='';$('v023Code').readOnly=false;$('v023Type').disabled=false;$('v023Submit').textContent='＋ Lưu hồ sơ';$('v023CancelEdit').hidden=true; }
+  let v023Classes=[];
+  async function v023LoadClasses(){
+    const select=$('v023Class');
+    const previous=select.value;
+    v023Classes=[];
+    select.disabled=true;
+    select.replaceChildren(new Option('Đang tải danh sách lớp...',''));
+    const permissions=window.edunexaTeacherPermissions;
+    let classes;
+    if(permissions){
+      classes=permissions.lop_hoc;
+      if(!Array.isArray(classes))throw Error('Không tải được lớp được phân công');
+    }else{
+      const data=await call('teacher_access_classes',{truong_id:v023School()});
+      if(!Array.isArray(data?.lop_hoc))throw Error('Danh sách lớp không hợp lệ');
+      classes=data.lop_hoc;
+    }
+    v023Classes=classes
+      .filter(item=>item&&typeof item.id==='string'&&typeof item.ten_lop==='string'&&item.ten_lop.trim())
+      .sort((a,b)=>String(a.khoi||'').localeCompare(String(b.khoi||''),'vi')||a.ten_lop.localeCompare(b.ten_lop,'vi'));
+    select.replaceChildren(new Option('Chọn lớp hiện có...',''));
+    for(const item of v023Classes){
+      const label=`${item.ten_lop}${item.khoi?` · Khối ${item.khoi}`:''}`;
+      select.append(new Option(label,item.ten_lop));
+    }
+    select.value=v023Classes.some(item=>item.ten_lop===previous)?previous:'';
+    select.disabled=!v023Classes.length;
+    if(!v023Classes.length){
+      select.replaceChildren(new Option('Chưa có lớp trong năm học hiện hành',''));
+      $('v023ClassNotice').textContent='Hãy cấu hình năm học và lớp trước khi thêm hoặc sửa hồ sơ học sinh.';
+    }else{
+      $('v023ClassNotice').textContent=`Chỉ chọn được lớp thuộc năm học hiện hành (${v023Classes.length} lớp).`;
+    }
+    v023UpdateClassField();
+  }
+  function v023UpdateClassField(){
+    const isStudent=$('v023Type').value==='student';
+    $('v023Class').required=isStudent;
+    $('v023Class').disabled=!isStudent||!v023Classes.length;
+    if(!isStudent)$('v023Class').value='';
+  }
+  $('v023Type').onchange=v023UpdateClassField;
+  function v023ResetEdit(){ $('v023Form').reset();$('v023Id').value='';$('v023Updated').value='';$('v023Code').readOnly=false;$('v023Type').disabled=false;$('v023Submit').textContent='＋ Lưu hồ sơ';$('v023CancelEdit').hidden=true;v023UpdateClassField(); }
   $('v023CancelEdit').onclick=v023ResetEdit;
   $('v023Form').onsubmit=async e=>{e.preventDefault();
-    const item={loai:$('v023Type').value,ma_dinh_danh:$('v023Code').value.trim(),ho_ten:$('v023Name').value.trim(),ngay_sinh:$('v023Dob').value,lop:$('v023Class').value.trim(),email:$('v023Email').value.trim(),thong_tin:{}};
+    const item={loai:$('v023Type').value,ma_dinh_danh:$('v023Code').value.trim(),ho_ten:$('v023Name').value.trim(),ngay_sinh:$('v023Dob').value,lop:$('v023Class').value,email:$('v023Email').value.trim(),thong_tin:{}};
+    if(item.loai==='student'&&!v023Classes.some(classItem=>classItem.ten_lop===item.lop)){v023Status('Hãy chọn một lớp trong danh sách năm học hiện hành.',true);return}
     const button=$('v023Submit');button.disabled=true;
     try{
       if($('v023Id').value)await call('hoso_update',{truong_id:v023School(),du_lieu:{id:$('v023Id').value,ngay_cap_nhat:$('v023Updated').value,ho_ten:item.ho_ten,ngay_sinh:item.ngay_sinh,lop:item.lop,email:item.email}});
       else await v023Save([item]);
-      v023ResetEdit();await v023Load();v023Status('Đã lưu hồ sơ học sinh vào CSDL.');
+      v023ResetEdit();if(await v023Load())v023Status('Đã lưu hồ sơ học sinh vào CSDL.');
     }catch(err){v023Status('Không lưu được hồ sơ: '+err.message,true)}finally{button.disabled=false}
   };
   function v023Render(){
@@ -780,8 +823,8 @@
       const actions=document.createElement('div');actions.className='v023-row-actions';
       const canManage=!window.edunexaTeacherPermissions||window.edunexaTeacherPermissions.student_profiles_manage;
       if(canManage){
-        const edit=document.createElement('button');edit.type='button';edit.className='outline';edit.textContent='✎ Sửa';edit.onclick=()=>{v023Mode('manual');$('v023Id').value=p.id;$('v023Updated').value=p.ngay_cap_nhat;$('v023Type').value=p.loai;$('v023Type').disabled=true;$('v023Code').value=p.ma_dinh_danh;$('v023Code').readOnly=true;$('v023Name').value=p.ho_ten;$('v023Dob').value=p.ngay_sinh||'';$('v023Class').value=p.lop||'';$('v023Email').value=p.email||'';$('v023Submit').textContent='💾 Lưu thay đổi';$('v023CancelEdit').hidden=false;$('v023ManualSection').scrollIntoView({behavior:'smooth',block:'start'});};
-        const archive=document.createElement('button');archive.type='button';archive.className='outline';archive.textContent='Ngừng hiệu lực';archive.onclick=async()=>{if(!confirm(`Ngừng hiệu lực hồ sơ ${p.ho_ten}?`))return;try{await call('hoso_archive',{truong_id:v023School(),du_lieu:{id:p.id,ngay_cap_nhat:p.ngay_cap_nhat}});await v023Load();v023Status('Đã ngừng hiệu lực hồ sơ.')}catch(err){v023Status(err.message,true)}};
+        const edit=document.createElement('button');edit.type='button';edit.className='outline';edit.textContent='✎ Sửa';edit.onclick=()=>{v023Mode('manual');$('v023Id').value=p.id;$('v023Updated').value=p.ngay_cap_nhat;$('v023Type').value=p.loai;$('v023Type').disabled=true;$('v023Code').value=p.ma_dinh_danh;$('v023Code').readOnly=true;$('v023Name').value=p.ho_ten;$('v023Dob').value=p.ngay_sinh||'';$('v023Class').value=v023Classes.some(classItem=>classItem.ten_lop===p.lop)?p.lop:'';$('v023Email').value=p.email||'';$('v023Submit').textContent='💾 Lưu thay đổi';$('v023CancelEdit').hidden=false;v023UpdateClassField();if(p.loai==='student'&&!$('v023Class').value)$('v023ClassNotice').textContent=`Lớp hiện tại "${p.lop||'chưa có'}" không nằm trong danh sách lớp năm học hiện hành. Hãy chọn lớp hợp lệ trước khi lưu.`;$('v023ManualSection').scrollIntoView({behavior:'smooth',block:'start'});};
+        const archive=document.createElement('button');archive.type='button';archive.className='outline';archive.textContent='Ngừng hiệu lực';archive.onclick=async()=>{if(!confirm(`Ngừng hiệu lực hồ sơ ${p.ho_ten}?`))return;try{await call('hoso_archive',{truong_id:v023School(),du_lieu:{id:p.id,ngay_cap_nhat:p.ngay_cap_nhat}});if(await v023Load())v023Status('Đã ngừng hiệu lực hồ sơ.')}catch(err){v023Status(err.message,true)}};
         actions.append(edit,archive);
       }
       row.append(info,actions);root.append(row);
@@ -789,8 +832,22 @@
     if(!rows.length)root.textContent=query?'Không tìm thấy học sinh phù hợp.':'Chưa có hồ sơ học sinh.';
   }
   $('v023Search').oninput=v023Render;
-  async function v023Load(){try{v023ApplyPermissions();const data=await call('hoso_list',{truong_id:v023School()});v023Rows=Array.isArray(data)?data:[];v023Render();v023Status(`Đã tải ${v023Rows.filter(p=>p.loai==='student').length} học sinh; ${v023Rows.length} hồ sơ đang hoạt động.`);}
-    catch(err){v023Status('Không tải được danh sách: '+err.message,true)}}
+  async function v023Load(){v023ApplyPermissions();const [classesResult,profilesResult]=await Promise.allSettled([
+      v023LoadClasses(),call('hoso_list',{truong_id:v023School()})
+    ]);
+    if(profilesResult.status==='rejected'){v023Status('Không tải được danh sách hồ sơ: '+profilesResult.reason.message,true);return false}
+    v023Rows=Array.isArray(profilesResult.value)?profilesResult.value:[];
+    v023Render();
+    if(classesResult.status==='rejected'){
+      $('v023Class').replaceChildren(new Option('Không tải được danh sách lớp',''));
+      $('v023Class').disabled=true;
+      $('v023ClassNotice').textContent='Không thể tải lớp hiện có: '+classesResult.reason.message;
+      v023Status(`Đã tải ${v023Rows.filter(p=>p.loai==='student').length} học sinh; không thể tải danh sách lớp.`,true);
+      return false;
+    }
+    v023Status(`Đã tải ${v023Rows.filter(p=>p.loai==='student').length} học sinh; ${v023Rows.length} hồ sơ đang hoạt động.`);
+    return true;
+  }
   $('v023Reload').onclick=v023Load;
   const v023Date=v=>{
     if(!v)return '';
@@ -808,7 +865,7 @@
     const file=$('v023Excel').files?.[0];if(!file){$('v023PreviewInfo').textContent='Hãy chọn tệp Excel.';return}
     if(!/\.xlsx?$/i.test(file.name)||file.size>5*1024*1024){$('v023PreviewInfo').textContent='Chỉ nhận XLS/XLSX tối đa 5 MB.';return}
     try{await v023LoadXLSX();const book=XLSX.read(await file.arrayBuffer(),{type:'array',raw:true});const kind=$('v023ImportType').value;
-      const preview=[];let invalid=0;const seen=new Set();
+      const preview=[];let invalid=0;let invalidClass=0;const seen=new Set();
       for(const sheetName of book.SheetNames){const rows=XLSX.utils.sheet_to_json(book.Sheets[sheetName],{header:1,defval:'',raw:true});
         const header=rows.findIndex(r=>r.some(v=>String(v).trim()==='Mã định danh Bộ GD&ĐT')&&r.some(v=>String(v).trim()==='Họ tên'));
         if(header<0)continue;
@@ -820,6 +877,7 @@
           const name=String(row[col('Họ tên')]??'').trim();if(!code&&!name)continue;
           if(!code||!name||code.length>64||name.length>200){invalid++;continue}
           const key=kind+':'+code;if(seen.has(key)){invalid++;continue}seen.add(key);
+          if(kind==='student'&&!v023Classes.some(classItem=>classItem.ten_lop===className)){invalid++;invalidClass++;continue}
           const dob=v023Date(row[col('Ngày sinh')]);
           const info={gioi_tinh:String(row[col('Giới tính')]??'').slice(0,50),dan_toc:String(row[col('Dân tộc')]??'').slice(0,80)};
           preview.push({loai:kind,ma_dinh_danh:code,ho_ten:name,ngay_sinh:dob,lop:kind==='student'?className:'',email:'',thong_tin:info});
@@ -827,14 +885,14 @@
       }
       v023Pending=preview;const root=$('v023PreviewRows');root.replaceChildren();
       for(const p of preview.slice(0,12)){const div=document.createElement('div');div.textContent=`${p.ma_dinh_danh} · ${p.ho_ten}${p.lop?' · '+p.lop:''}`;root.append(div)}
-      $('v023PreviewInfo').textContent=`${preview.length} hồ sơ hợp lệ; ${invalid} dòng bỏ qua. Xem trước 12 dòng. Chưa ghi dữ liệu.`;
+      $('v023PreviewInfo').textContent=`${preview.length} hồ sơ hợp lệ; ${invalid} dòng bỏ qua${invalidClass?` (trong đó ${invalidClass} dòng có lớp không tồn tại trong năm học hiện hành)`:''}. Xem trước 12 dòng. Chưa ghi dữ liệu.`;
       $('v023Import').textContent=`💾 Ghi ${preview.length} hồ sơ hợp lệ vào CSDL`;
       $('v023Import').hidden=!preview.length;
     }catch(err){$('v023PreviewInfo').textContent='Không đọc được Excel: '+err.message}
   };
   $('v023Import').onclick=async()=>{if(!v023Pending.length)return;
     if(!confirm(`Nhập/cập nhật ${v023Pending.length} hồ sơ tại trường hiện tại? Không tạo tài khoản Auth.`))return;
-    $('v023Import').disabled=true;try{const n=await v023Save(v023Pending);v023Pending=[];$('v023Import').hidden=true;$('v023Excel').value='';$('v023PreviewRows').replaceChildren();$('v023PreviewInfo').textContent=`Đã ghi ${n} hồ sơ vào CSDL.`;await v023Load();v023Status(`Đã lưu ${n} hồ sơ. Có thể chọn học sinh trong tab Chấm thi đua.`)}
+    $('v023Import').disabled=true;try{const n=await v023Save(v023Pending);v023Pending=[];$('v023Import').hidden=true;$('v023Excel').value='';$('v023PreviewRows').replaceChildren();$('v023PreviewInfo').textContent=`Đã ghi ${n} hồ sơ vào CSDL.`;if(await v023Load())v023Status(`Đã lưu ${n} hồ sơ. Có thể chọn học sinh trong tab Chấm thi đua.`)}
     catch(err){v023Status('Nhập chưa hoàn tất: '+err.message,true)}finally{$('v023Import').disabled=false}
   };
   initialize().catch(e=>msg(e.message,true));

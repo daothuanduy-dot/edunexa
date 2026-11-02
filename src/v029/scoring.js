@@ -5,7 +5,7 @@
   const cfg = window.EDUNEXA_CONFIG;
   if (!cfg || !window.supabase) return;
   const sb = window.supabase.createClient(cfg.url, cfg.publishableKey);
-  const state = { school: null, areas: [], criteria: [], records: [], targets: { student: [], class: [] }, filters: { grade: '', className: '', search: '', student: '', criterion: '', direction: 'positive' } };
+  const state = { school: null, areas: [], criteria: [], records: [], areaLoadError: '', criteriaLoadError: '', targets: { student: [], class: [] }, filters: { grade: '', className: '', search: '', student: '', criterion: '', direction: 'positive' } };
   let tabButton = null;
   let panel = null;
 
@@ -104,6 +104,7 @@
     const raw = criterion.che_do_diem === 'flexible'
       ? criterion.diem_gioi_han ?? criterion.diem
       : criterion.diem_co_dinh ?? criterion.diem;
+    if (raw === null || raw === undefined || raw === '') return null;
     const score = Number(raw);
     return Number.isFinite(score) ? score : null;
   }
@@ -129,7 +130,9 @@
     select.replaceChildren();
     select.append(make('option', { value: '', textContent: 'Chọn hình thức ghi nhận...', disabled: true, selected: true }));
     const targetType = selectedValue('v029RecordTarget');
-    for (const criterion of state.criteria.filter(item => item.mang_id === areaId && item.doi_tuong === targetType)) {
+    for (const criterion of state.criteria.filter(item =>
+      String(item.mang_id || '').toLocaleLowerCase() === String(areaId || '').toLocaleLowerCase() &&
+      item.doi_tuong === targetType)) {
       const score = criterionScore(criterion);
       const mode = criterion.che_do_diem === 'flexible'
         ? `linh hoạt · giới hạn ${score ?? 'chưa cấu hình'}`
@@ -302,18 +305,25 @@
     const root = $('v029CriteriaActions');
     if (!root) return;
     root.replaceChildren();
+    const count = $('v029CriterionCount');
+    if (state.areaLoadError || state.criteriaLoadError) {
+      if (count) count.textContent = 'Chưa tải được danh mục';
+      root.append(make('small', { textContent: 'Không thể xác định tiêu chí phù hợp vì danh mục chưa tải thành công. Hãy xem thông báo lỗi tải dữ liệu phía trên.' }));
+      return;
+    }
     const targetType = selectedValue('v029RecordTarget');
     const areaId = $('v029RecordArea')?.value;
-    const allItems = state.criteria.filter(item => {
+    const areaItems = state.criteria.filter(item =>
+      String(item.mang_id || '').toLocaleLowerCase() === String(areaId || '').toLocaleLowerCase());
+    const targetItems = areaItems.filter(item => item.doi_tuong === targetType);
+    const directionalItems = targetItems.filter(item => {
       const score = criterionScore(item);
-      return item.mang_id === areaId &&
-        item.doi_tuong === targetType &&
-        (state.filters.direction === 'positive' ? score > 0 : score < 0);
+      return score !== null && (state.filters.direction === 'positive' ? score > 0 : score < 0);
     });
+    const allItems = directionalItems;
     const query = state.filters.criterion.trim().toLocaleLowerCase('vi');
     const items = allItems.filter(item => !query ||
       `${item.ma || ''} ${item.ten || ''}`.toLocaleLowerCase('vi').includes(query));
-    const count = $('v029CriterionCount');
     if (count) count.textContent = query ? `${items.length}/${allItems.length} tiêu chí` : `${allItems.length} tiêu chí`;
     const select = $('v029RecordCriterion');
     if (select?.value && !allItems.some(item => item.id === select.value)) {
@@ -339,7 +349,22 @@
       };
       root.append(button);
     }
-    if (!allItems.length) root.append(make('small', { textContent: `Mảng này chưa có tiêu chí ${state.filters.direction === 'positive' ? 'điểm cộng' : 'điểm trừ'} phù hợp với đối tượng đang chọn.` }));
+    if (!areaItems.length) root.append(make('small', { textContent: 'Mảng này chưa có tiêu chí nào được gắn. Hãy thêm tiêu chí trong Quản lý thi đua và chọn đúng mảng.' }));
+    else if (!targetItems.length) root.append(make('small', { textContent: `Mảng này có ${areaItems.length} tiêu chí nhưng chưa có tiêu chí dành cho ${targetType === 'student' ? 'cá nhân' : 'tập thể/lớp'}.` }));
+    else if (!allItems.length) {
+      const directionLabel = state.filters.direction === 'positive' ? 'điểm cộng' : 'điểm trừ';
+      const missingScores = targetItems.filter(item => criterionScore(item) === null).length;
+      const otherDirection = targetItems.filter(item => {
+        const score = criterionScore(item);
+        return score !== null && (state.filters.direction === 'positive' ? score < 0 : score > 0);
+      }).length;
+      const message = missingScores === targetItems.length
+        ? `${targetItems.length} tiêu chí đúng mảng và đối tượng nhưng chưa cấu hình điểm.`
+        : otherDirection
+          ? `Không có ${directionLabel} cho đối tượng này; ${otherDirection} tiêu chí thuộc chiều điểm ngược lại${missingScores ? ` và ${missingScores} tiêu chí chưa cấu hình điểm` : ''}.`
+          : `Không có tiêu chí ${directionLabel} có điểm khác 0 cho đối tượng này${missingScores ? `; ${missingScores} tiêu chí chưa cấu hình điểm` : ''}.`;
+      root.append(make('small', { textContent: message }));
+    }
     else if (!items.length) root.append(make('small', { textContent: 'Không tìm thấy tiêu chí. Hãy thử từ khóa khác.' }));
     const selected = selectedCriterion();
     root.querySelectorAll('button').forEach(button => { button.classList.toggle('selected', button.dataset.criterionId === selected?.id); });
@@ -516,9 +541,27 @@
         schoolApi('tieuchi_list'),
         teacherCanViewHistory() ? schoolApi('ghi_nhan_list') : Promise.resolve([]),
       ]);
-      state.areas = areas.status === 'fulfilled' ? areas.value : [];
-      state.criteria = criteria.status === 'fulfilled' ? criteria.value : [];
-      state.records = records.status === 'fulfilled' ? records.value : [];
+      const failures = [];
+      const unwrapList = (result, label) => {
+        if (result.status === 'rejected') {
+          failures.push(`${label}: ${result.reason?.message || 'không tải được'}`);
+          return [];
+        }
+        if (!Array.isArray(result.value)) {
+          failures.push(`${label}: dữ liệu trả về không hợp lệ`);
+          return [];
+        }
+        return result.value;
+      };
+      state.areaLoadError = areas.status === 'rejected'
+        ? areas.reason?.message || 'không tải được'
+        : Array.isArray(areas.value) ? '' : 'dữ liệu trả về không hợp lệ';
+      state.criteriaLoadError = criteria.status === 'rejected'
+        ? criteria.reason?.message || 'không tải được'
+        : Array.isArray(criteria.value) ? '' : 'dữ liệu trả về không hợp lệ';
+      state.areas = unwrapList(areas, 'Mảng thi đua');
+      state.criteria = unwrapList(criteria, 'Tiêu chí thi đua');
+      state.records = unwrapList(records, 'Lịch sử ghi nhận');
       renderAreaOptions();
       renderWorkflow();
       if (teacherCanRecord()) void loadTargets();
@@ -527,8 +570,9 @@
       if (workflow) workflow.hidden = !teacherCanRecord();
       const historyCard = $('v029RecordList')?.closest('.v029-card');
       if (historyCard) historyCard.hidden = !teacherCanViewHistory();
-      const failures = [areas, criteria, records].filter(item => item.status === 'rejected');
-      setNotice(failures.length ? 'Đã tải dữ liệu được phép xem. Một số dữ liệu chưa tải được.' : 'Đã tải dữ liệu ghi nhận. Chưa tính điểm tổng hợp.', false);
+      setNotice(failures.length
+        ? `Một số dữ liệu chưa tải được: ${failures.join(' · ')}`
+        : 'Đã tải dữ liệu ghi nhận. Chưa tính điểm tổng hợp.', failures.length > 0);
     } catch (error) { setNotice(error.message, true); }
   }
 
